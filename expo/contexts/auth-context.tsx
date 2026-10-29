@@ -40,7 +40,23 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    void loadAuthState().finally(() => setIsLoading(false));
+    let finished = false;
+    const finish = () => {
+      if (!finished) {
+        finished = true;
+        setIsLoading(false);
+      }
+    };
+    // Failsafe: never keep the launch screen up if storage hangs.
+    const timer = setTimeout(() => {
+      console.warn('[Auth] Auth load timed out, continuing');
+      finish();
+    }, 4000);
+    void loadAuthState().finally(() => {
+      clearTimeout(timer);
+      finish();
+    });
+    return () => clearTimeout(timer);
   }, []);
 
   const loadAuthState = async () => {

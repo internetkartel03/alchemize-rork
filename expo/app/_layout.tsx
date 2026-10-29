@@ -73,13 +73,23 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     }
   }, [isAuthenticated, isLoading, inAuth, navState?.key, router]);
 
+  const [failsafe, setFailsafe] = React.useState(false);
+  useEffect(() => {
+    // Failsafe: never leave the user on a frozen launch screen.
+    const t = setTimeout(() => {
+      setFailsafe(true);
+      SplashScreen.hideAsync().catch(() => {});
+    }, 6000);
+    return () => clearTimeout(t);
+  }, []);
+
   useEffect(() => {
     if (!isLoading && !needsRedirect) {
       SplashScreen.hideAsync().catch(() => {});
     }
   }, [isLoading, needsRedirect]);
 
-  if (isLoading || needsRedirect) {
+  if ((isLoading || needsRedirect) && !failsafe) {
     return (
       <View style={layoutStyles.splash}>
         <Image
