@@ -52,6 +52,9 @@
       "legalUrls": {
         "privacy": "https://alchemize.app/privacy",
         "termsOfService": "https://alchemize.app/terms"
+      },
+      "eas": {
+        "projectId": "8482b587-bf4b-4f73-96da-e7ff086683a3"
       }
     },
     "plugins": [
@@ -106,6 +109,7 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "owner": "internetkartel"
   }
 }
