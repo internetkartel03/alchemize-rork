@@ -2,7 +2,7 @@
   "expo": {
     "name": "Alchemize",
     "slug": "alchemize-level-up",
-    "version": "1.4.9",
+    "version": "1.4.10",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "rork-app",
@@ -11,7 +11,7 @@
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0c0520"
+      "backgroundColor": "#000101"
     },
     "ios": {
       "supportsTablet": false,
@@ -19,13 +19,22 @@
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Allow $(PRODUCT_NAME) to access your photos",
         "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to access your camera",
-        "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to access your microphone"
+        "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to access your microphone",
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSMotionUsageDescription": "Alchemize uses your motion and fitness data to count your daily steps.",
+        "NSHealthShareUsageDescription": "Alchemize reads your Apple Health data (workouts, active energy, exercise minutes) to keep your fitness stats in sync.",
+        "NSHealthUpdateUsageDescription": "Alchemize does not write any data to Apple Health."
+      },
+      "usesAppleSignIn": true,
+      "entitlements": {
+        "com.apple.developer.healthkit": true,
+        "com.apple.developer.healthkit.access": []
       }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#000101"
       },
       "package": "app.rork.alchemize_app_skeleton",
       "permissions": [
@@ -105,7 +114,28 @@
           "recordAudioAndroid": true
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-apple-authentication",
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Alchemize adds your appointments to your device calendar so you don't miss them.",
+          "remindersPermission": false
+        }
+      ],
+      [
+        "expo-sensors",
+        {
+          "motionPermission": "Alchemize uses your motion and fitness data to count your daily steps."
+        }
+      ],
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "Alchemize reads your Apple Health data (workouts, active energy, exercise minutes) to keep your fitness stats in sync.",
+          "NSHealthUpdateUsageDescription": "Alchemize does not write any data to Apple Health."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

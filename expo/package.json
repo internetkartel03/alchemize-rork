@@ -83,7 +83,9 @@
     "superjson": "^2.2.6",
     "surrealdb.js": "^1.0.0",
     "zod": "^4.3.5",
-    "zustand": "^5.0.2"
+    "zustand": "^5.0.2",
+    "@kingstinct/react-native-healthkit": "^14.0.2",
+    "react-native-nitro-modules": "^0.36.1"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
