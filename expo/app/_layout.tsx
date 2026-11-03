@@ -1,12 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack, useRouter, useRootNavigationState, useSegments } from "expo-router";
 import React, { useEffect } from "react";
-import { StyleSheet, Text, Platform, View, Image } from 'react-native';
-import { TouchableOpacity } from '@/components/HapticTouchable';
+import { StyleSheet, Platform, View, Image } from 'react-native';
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { ChevronLeft } from "lucide-react-native";
 import * as SplashScreen from "expo-splash-screen";
+import BackButton from "@/components/BackButton";
+import ScreenTransition from "@/components/ScreenTransition";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { AuthProvider, useAuth } from "@/contexts/auth-context";
 import { initDatabase } from '@/lib/db/core';
@@ -25,24 +25,6 @@ const queryClient = new QueryClient({
     },
   },
 });
-
-function BackButton() {
-  const router = useRouter();
-  const navState = useRootNavigationState();
-  const canGoBack = (navState?.routes?.length ?? 0) > 1;
-  if (!canGoBack) return null;
-  return (
-    <TouchableOpacity
-      onPress={() => router.back()}
-      style={layoutStyles.backButton}
-      activeOpacity={0.7}
-      testID="global-back-button"
-    >
-      <ChevronLeft color="#ffffff" size={18} strokeWidth={2.5} />
-      <Text style={layoutStyles.backButtonText}>Back</Text>
-    </TouchableOpacity>
-  );
-}
 
 function GestureOnboardingGate() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -116,12 +98,13 @@ function RootLayoutNav() {
         headerTintColor: "#ffffff",
         headerStyle: { backgroundColor: '#0c0520' },
         headerShadowVisible: false,
-        headerTitleStyle: { color: '#ffffff' },
+        headerTitleStyle: { color: '#ffffff', fontSize: 18, fontWeight: '600' as const },
         headerLeft: () => <BackButton />,
         gestureEnabled: true,
         fullScreenGestureEnabled: true,
         animation: 'slide_from_right',
-        animationDuration: 280,
+        animationDuration: 260,
+        animationMatchesGesture: true,
         contentStyle: { backgroundColor: '#0c0520' },
       }}
     >
@@ -192,7 +175,9 @@ export default function RootLayout() {
             <GestureHandlerRootView style={layoutStyles.root}>
               <View style={layoutStyles.root}>
                 <AuthGate>
-                  <RootLayoutNav />
+                  <ScreenTransition>
+                    <RootLayoutNav />
+                  </ScreenTransition>
                 </AuthGate>
                 <NetworkBanner />
                 <GestureOnboardingGate />
@@ -208,18 +193,6 @@ export default function RootLayout() {
 const layoutStyles = StyleSheet.create({
   root: {
     flex: 1,
-  },
-  backButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingVertical: 6,
-    paddingRight: 8,
-  },
-  backButtonText: {
-    color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '600' as const,
   },
   splash: {
     flex: 1,
