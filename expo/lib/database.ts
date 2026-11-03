@@ -1754,14 +1754,33 @@ export const mealPrepPlansDb = {
 export const fitnessGoalsDb = {
   async getAll(): Promise<FitnessGoal[]> {
     const database = await ensureDatabase();
-    return database.getAllAsync<FitnessGoal>('SELECT * FROM fitness_goals ORDER BY createdAt DESC');
+    const userId = getCurrentUserId() ?? 'guest';
+    return database.getAllAsync<FitnessGoal>('SELECT * FROM fitness_goals WHERE userId = ? ORDER BY createdAt DESC', [userId]);
+  },
+
+  async setTarget(metric: FitnessGoal['metric'], dailyTarget: number): Promise<void> {
+    const database = await ensureDatabase();
+    const userId = getCurrentUserId() ?? 'guest';
+    const existing = await database.getFirstAsync<FitnessGoal>(
+      'SELECT * FROM fitness_goals WHERE metric = ? AND userId = ?',
+      [metric, userId]
+    );
+    if (existing) {
+      await database.runAsync('UPDATE fitness_goals SET dailyTarget = ? WHERE id = ?', [dailyTarget, existing.id]);
+      return;
+    }
+    await database.runAsync(
+      'INSERT INTO fitness_goals (id, userId, metric, dailyTarget, createdAt) VALUES (?, ?, ?, ?, ?)',
+      [Date.now().toString() + Math.random().toString(36).substring(2, 11), userId, metric, dailyTarget, Date.now()]
+    );
   },
   
   async create(goal: FitnessGoal): Promise<void> {
     const database = await ensureDatabase();
+    const userId = getCurrentUserId() ?? 'guest';
     await database.runAsync(
-      'INSERT INTO fitness_goals (id, metric, dailyTarget, createdAt) VALUES (?, ?, ?, ?)',
-      [goal.id, goal.metric, goal.dailyTarget, goal.createdAt]
+      'INSERT INTO fitness_goals (id, userId, metric, dailyTarget, createdAt) VALUES (?, ?, ?, ?, ?)',
+      [goal.id, userId, goal.metric, goal.dailyTarget, goal.createdAt]
     );
   },
   
