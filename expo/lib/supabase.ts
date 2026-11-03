@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabaseSecureStorage } from '@/lib/secure-storage';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
@@ -25,7 +25,8 @@ export function getSupabase(): SupabaseClient {
 
   supabaseInstance = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
-      storage: Platform.OS === 'web' ? undefined : AsyncStorage,
+      // Native sessions are chunked into Keychain/Keystore; web uses localStorage.
+      storage: Platform.OS === 'web' ? undefined : supabaseSecureStorage,
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: Platform.OS === 'web',

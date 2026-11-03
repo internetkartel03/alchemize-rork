@@ -31,6 +31,8 @@ create index if not exists gratitude_entries_user_id_entry_date_idx
 
 alter table public.gratitude_entries enable row level security;
 
+-- Supabase grants PUBLIC/anon by default; remove both, then grant CRUD to authenticated only.
+revoke all on table public.gratitude_entries from public;
 revoke all on table public.gratitude_entries from anon;
 grant select, insert, update, delete on table public.gratitude_entries to authenticated;
 
@@ -84,6 +86,7 @@ create index if not exists appointments_user_id_date_time_idx
 
 alter table public.appointments enable row level security;
 
+revoke all on table public.appointments from public;
 revoke all on table public.appointments from anon;
 grant select, insert, update, delete on table public.appointments to authenticated;
 

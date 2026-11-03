@@ -7,6 +7,7 @@ import * as Crypto from 'expo-crypto';
 import type { Session, User as SupabaseUser } from '@supabase/supabase-js';
 
 import { setCurrentUserId } from '@/lib/db/core';
+import { localUserIdForAuthUser, recordLegacyUserId } from '@/lib/legacy-user-map';
 import { getSupabase } from '@/lib/supabase';
 import { secureStorage } from '@/lib/secure-storage';
 
@@ -14,7 +15,6 @@ const AUTH_STORAGE_KEY = '@alchemize_auth';
 const AUTH_SECURE_KEY = 'alchemize_auth_session';
 const REMEMBER_ME_KEY = '@alchemize_remember_me';
 const USERS_STORAGE_KEY = '@alchemize_users';
-const LEGACY_ID_MAP_KEY = '@alchemize_user_id_map';
 
 interface User {
   id: string;
@@ -33,6 +33,9 @@ interface StoredUser {
   name: string;
   password: string;
 }
+
+// Avoid re-running the idempotent upgrade on every token refresh.
+const finalizedLegacyIds = new Set<string>();
 
 type LegacyMigrationResult =
   | { status: 'no-match' }
@@ -72,6 +75,11 @@ function friendlyAuthError(message?: string): string {
   return message || 'Authentication failed';
 }
 
+function isInvalidCredentials(message?: string): boolean {
+  const text = (message || '').toLowerCase();
+  return text.includes('invalid login credentials') || text.includes('invalid credentials');
+}
+
 async function readLegacyUsers(): Promise<StoredUser[]> {
   try {
     const raw = await AsyncStorage.getItem(USERS_STORAGE_KEY);
@@ -83,17 +91,6 @@ async function readLegacyUsers(): Promise<StoredUser[]> {
   }
 }
 
-async function recordLegacyMapping(legacyId: string, authId: string): Promise<void> {
-  try {
-    const raw = await AsyncStorage.getItem(LEGACY_ID_MAP_KEY);
-    const map = raw ? (JSON.parse(raw) as Record<string, string>) : {};
-    map[legacyId] = authId;
-    await AsyncStorage.setItem(LEGACY_ID_MAP_KEY, JSON.stringify(map));
-  } catch (error) {
-    console.warn('[Auth] Could not record legacy ID mapping:', error);
-  }
-}
-
 /**
  * Runs only after a Supabase session exists. Rewrites the legacy local
  * account ID to the Supabase user ID and drops that account's stored
@@ -101,7 +98,7 @@ async function recordLegacyMapping(legacyId: string, authId: string): Promise<vo
  */
 async function finalizeLegacyMigration(legacyId: string, authId: string): Promise<void> {
   try {
-    await recordLegacyMapping(legacyId, authId);
+    await recordLegacyUserId(legacyId, authId);
 
     const users = await readLegacyUsers();
     const remaining = users.filter((user) => user.id !== legacyId);
@@ -143,12 +140,18 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
     const user = mapUser(session.user);
     setAuthState({ user, token: session.access_token ?? null });
-    setCurrentUserId(user.id);
 
+    // Finalize the legacy upgrade first so the local scope below sees the mapping.
     const legacyId = (session.user.user_metadata ?? {}).legacy_user_id;
-    if (typeof legacyId === 'string' && legacyId.length > 0) {
+    if (typeof legacyId === 'string' && legacyId.length > 0 && !finalizedLegacyIds.has(legacyId)) {
       await finalizeLegacyMigration(legacyId, user.id);
+      finalizedLegacyIds.add(legacyId);
     }
+
+    // Local SQLite stays scoped to the legacy ID for upgraded accounts so
+    // existing rows remain readable without being rewritten.
+    const localUserId = await localUserIdForAuthUser(user.id);
+    setCurrentUserId(localUserId);
   }, []);
 
   useEffect(() => {
@@ -246,7 +249,18 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         return { status: 'migrated', session: data.session };
       }
 
-      if (data.user) return { status: 'needs-confirmation' };
+      if (data.user) {
+        // Supabase returns an existing address with no identities when
+        // confirmation is off; treat it as an existing account, not a new one.
+        const identities = data.user.identities ?? [];
+        if (identities.length === 0) {
+          return {
+            status: 'failed',
+            error: 'An account with this email already exists. Sign in with its password or use Forgot Password.',
+          };
+        }
+        return { status: 'needs-confirmation' };
+      }
       return { status: 'failed', error: 'Account migration failed' };
     },
     []
@@ -269,6 +283,12 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
           await AsyncStorage.setItem(REMEMBER_ME_KEY, remember.toString());
           console.log('[Auth] Login successful:', trimmedEmail);
           return { success: true };
+        }
+
+        // Only a rejected password may trigger the legacy upgrade. A network or
+        // server failure must never fall through to account creation.
+        if (!isInvalidCredentials(error?.message)) {
+          return { success: false, error: friendlyAuthError(error?.message) };
         }
 
         const migration = await migrateLegacyAccount(trimmedEmail, password);
