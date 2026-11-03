@@ -11,7 +11,7 @@ import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { decode as base64Decode } from 'base64-arraybuffer';
-import { getSupabase, getSupabaseUserId, logSupabaseOp } from '@/lib/supabase';
+import { getSupabase, getAuthenticatedUserId, logSupabaseOp } from '@/lib/supabase';
 
 const MAX_DIMENSION = 1600;
 const COMPRESSION_QUALITY = 0.75;
@@ -136,7 +136,7 @@ export async function uploadImageToSupabase(
   fileName: string = 'image.jpg'
 ): Promise<UploadResult> {
   try {
-    const userId = getSupabaseUserId();
+    const userId = await getAuthenticatedUserId();
     const supabase = getSupabase();
     const timestamp = Date.now();
     const safeName = safeFilename(fileName);

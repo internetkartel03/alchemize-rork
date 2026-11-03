@@ -7,7 +7,7 @@
  * - Business and Personal appointments share the same CRUD service
  * - After any mutation, the caller is responsible for refreshing local state
  */
-import { getSupabase, getSupabaseUserId, logSupabaseOp } from '@/lib/supabase';
+import { getSupabase, getAuthenticatedUserId, logSupabaseOp } from '@/lib/supabase';
 import type { Appointment } from '@/types';
 
 export interface AppointmentServiceResult {
@@ -76,7 +76,7 @@ async function fetchById(userId: string, id: string): Promise<Appointment | null
 }
 
 async function createAppointment(appointment: Appointment): Promise<Appointment> {
-  const userId = getSupabaseUserId();
+  const userId = await getAuthenticatedUserId();
   const supabase = getSupabase();
   const row = mapToRow(appointment, userId);
 
@@ -92,7 +92,7 @@ async function createAppointment(appointment: Appointment): Promise<Appointment>
 }
 
 async function updateAppointmentById(appointment: Appointment): Promise<Appointment> {
-  const userId = getSupabaseUserId();
+  const userId = await getAuthenticatedUserId();
   const supabase = getSupabase();
 
   const { data, error } = await supabase
@@ -117,7 +117,7 @@ async function updateAppointmentById(appointment: Appointment): Promise<Appointm
 }
 
 async function deleteAppointmentById(id: string): Promise<void> {
-  const userId = getSupabaseUserId();
+  const userId = await getAuthenticatedUserId();
   const supabase = getSupabase();
   const { error } = await supabase
     .from(TABLE)
@@ -134,7 +134,7 @@ async function deleteAppointmentById(id: string): Promise<void> {
 export const appointmentSupabase = {
   async fetchAll(): Promise<AppointmentServiceResult> {
     try {
-      const userId = getSupabaseUserId();
+      const userId = await getAuthenticatedUserId();
       const data = await fetchAllForUser(userId);
       return { success: true, data };
     } catch (error: any) {
@@ -145,7 +145,7 @@ export const appointmentSupabase = {
 
   async getById(id: string): Promise<AppointmentServiceResult> {
     try {
-      const userId = getSupabaseUserId();
+      const userId = await getAuthenticatedUserId();
       const data = await fetchById(userId, id);
       return { success: true, data };
     } catch (error: any) {

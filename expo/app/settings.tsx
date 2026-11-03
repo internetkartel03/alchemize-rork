@@ -558,7 +558,27 @@ export default function SettingsScreen() {
     setEditProfileVisible(false);
   };
 
+  const performSignOut = useCallback(async () => {
+    console.log('[Settings] Signing out...');
+    try {
+      await logout();
+    } catch (error) {
+      console.error('[Settings] Error signing out:', error);
+      Alert.alert('Error', 'Failed to sign out. Please try again.');
+    }
+  }, [logout]);
+
   const handleSignOut = () => {
+    // react-native-web's Alert has no button actions, so confirm natively on web.
+    if (Platform.OS === 'web') {
+      const confirmed =
+        typeof window !== 'undefined' &&
+        typeof window.confirm === 'function' &&
+        window.confirm('Are you sure you want to sign out?');
+      if (confirmed) void performSignOut();
+      return;
+    }
+
     Alert.alert(
       'Sign Out',
       'Are you sure you want to sign out?',
@@ -567,15 +587,7 @@ export default function SettingsScreen() {
         {
           text: 'Sign Out',
           style: 'destructive',
-          onPress: async () => {
-            console.log('[Settings] Signing out...');
-            try {
-              await logout();
-            } catch (error) {
-              console.error('[Settings] Error signing out:', error);
-              Alert.alert('Error', 'Failed to sign out. Please try again.');
-            }
-          },
+          onPress: () => void performSignOut(),
         },
       ]
     );
