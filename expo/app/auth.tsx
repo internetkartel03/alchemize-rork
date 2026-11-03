@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator, Alert, Dimensions, Modal } from 'react-native';
+import { View, Text, TextInput, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator, Dimensions, Modal } from 'react-native';
 import { TouchableOpacity } from '@/components/HapticTouchable';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Image } from 'expo-image';
@@ -102,6 +102,11 @@ export default function AuthScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
+  const [resetVisible, setResetVisible] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+  const [resetError, setResetError] = useState('');
   const [checkingTerms, setCheckingTerms] = useState(true);
 
   const t = TRANSLATIONS[language];
@@ -175,30 +180,27 @@ export default function AuthScreen() {
   };
 
   const handleForgotPassword = () => {
-    Alert.prompt
-      ? Alert.prompt(
-          t.resetTitle,
-          t.resetMessage,
-          async (resetEmail: string) => {
-            if (!resetEmail) {
-              Alert.alert('Error', t.enterEmail);
-              return;
-            }
-            const result = await resetPassword(resetEmail);
-            if (result.success) {
-              Alert.alert(t.resetTitle, t.resetSent);
-            } else {
-              Alert.alert('Error', result.error || 'Failed to send reset link');
-            }
-          },
-          'plain-text',
-          email,
-          'email-address'
-        )
-      : Alert.alert(
-          t.resetTitle,
-          t.resetMessage + '\n\n' + t.resetSent
-        );
+    setResetEmail(email);
+    setResetError('');
+    setResetSent(false);
+    setResetVisible(true);
+  };
+
+  const handleSendReset = async () => {
+    const target = resetEmail.trim();
+    if (!target) {
+      setResetError(t.enterEmail);
+      return;
+    }
+    setResetBusy(true);
+    setResetError('');
+    const result = await resetPassword(target);
+    setResetBusy(false);
+    if (result.success) {
+      setResetSent(true);
+    } else {
+      setResetError(result.error || 'Failed to send reset link');
+    }
   };
 
   const showAppleNative = appleAuthAvailable && Platform.OS !== 'web';
@@ -438,6 +440,79 @@ export default function AuthScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <Modal
+        visible={resetVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setResetVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <View style={styles.modalIconWrap}>
+                <Mail color="#fbbf24" size={22} />
+              </View>
+              <Text style={styles.modalTitle}>{t.resetTitle}</Text>
+              <Text style={styles.modalIntro}>{t.resetMessage}</Text>
+            </View>
+            <View style={styles.modalScrollContent}>
+              {resetSent ? (
+                <Text style={styles.modalBody}>{t.resetSent}</Text>
+              ) : (
+                <>
+                  <View style={styles.field}>
+                    <Mail color="rgba(167,139,250,0.4)" size={16} style={styles.fieldIcon} />
+                    <TextInput
+                      style={styles.fieldInput}
+                      placeholder={t.resetEmail}
+                      placeholderTextColor="rgba(255,255,255,0.3)"
+                      value={resetEmail}
+                      onChangeText={setResetEmail}
+                      autoCapitalize="none"
+                      keyboardType="email-address"
+                      autoComplete="email"
+                      testID="reset-email-input"
+                    />
+                  </View>
+                  {resetError ? <Text style={styles.errorMsg}>{resetError}</Text> : null}
+                </>
+              )}
+            </View>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.declineBtn}
+                onPress={() => setResetVisible(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.declineText}>{t.cancel}</Text>
+              </TouchableOpacity>
+              {!resetSent && (
+                <TouchableOpacity
+                  style={styles.agreeBtn}
+                  onPress={handleSendReset}
+                  disabled={resetBusy}
+                  activeOpacity={0.85}
+                  testID="send-reset-button"
+                >
+                  <LinearGradient
+                    colors={['#8b5cf6', '#7c3aed', '#6d28d9']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.agreeBtnGradient}
+                  >
+                    {resetBusy ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <Text style={styles.agreeBtnText}>{t.sendReset}</Text>
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={showTermsModal && !checkingTerms}

@@ -57,21 +57,25 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   const navState = useRootNavigationState();
 
   const inAuth = segments[0] === 'auth';
+  // Password-recovery links land here with a short-lived session that must not
+  // be bounced to the app before the user sets a new password. The route is
+  // also reachable without a session so an expired link can explain itself.
+  const inRecovery = segments[0] === 'reset-password';
   // Whether a redirect is needed to align the route with auth state.
   // While true, we hold the splash screen so screens don't mount and
   // immediately unmount (which aborts in-flight image fetches → AbortError).
   const needsRedirect =
-    (!isAuthenticated && !inAuth) || (isAuthenticated && inAuth);
+    (!isAuthenticated && !inAuth && !inRecovery) || (isAuthenticated && inAuth);
 
   useEffect(() => {
     if (isLoading) return;
     if (!navState?.key) return;
-    if (!isAuthenticated && !inAuth) {
+    if (!isAuthenticated && !inAuth && !inRecovery) {
       router.replace('/auth');
     } else if (isAuthenticated && inAuth) {
       router.replace('/');
     }
-  }, [isAuthenticated, isLoading, inAuth, navState?.key, router]);
+  }, [isAuthenticated, isLoading, inAuth, inRecovery, navState?.key, router]);
 
   const [failsafe, setFailsafe] = React.useState(false);
   useEffect(() => {
@@ -122,6 +126,7 @@ function RootLayoutNav() {
       }}
     >
       <Stack.Screen name="auth" options={{ title: "Welcome", headerShown: false }} />
+      <Stack.Screen name="reset-password" options={{ title: "Set New Password", headerShown: false }} />
       <Stack.Screen name="index" options={{ title: "Alchemize", headerShown: false }} />
       <Stack.Screen name="manifestation-board/index" options={{ title: "Portal Board", headerShown: true }} />
       <Stack.Screen name="manifestation-board/[id]" options={{ title: "Manifestation Detail", headerStyle: { backgroundColor: '#0c0520' }, headerTintColor: '#ffffff' }} />

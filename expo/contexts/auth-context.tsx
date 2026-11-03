@@ -4,10 +4,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import createContextHook from '@nkzw/create-context-hook';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
+import * as Linking from 'expo-linking';
 import type { Session, User as SupabaseUser } from '@supabase/supabase-js';
 
 import { setCurrentUserId } from '@/lib/db/core';
 import { localUserIdForAuthUser, recordLegacyUserId } from '@/lib/legacy-user-map';
+import { parseRecoveryLink } from '@/lib/recovery-link';
 import { getSupabase } from '@/lib/supabase';
 import { secureStorage } from '@/lib/secure-storage';
 
@@ -72,7 +74,24 @@ function friendlyAuthError(message?: string): string {
   if (text.includes('rate limit') || text.includes('too many')) {
     return 'Too many attempts. Please try again shortly';
   }
+  if (text.includes('auth session missing')) {
+    return 'This reset link has expired. Please request a new one.';
+  }
+  if (text.includes('should be different from the old password')) {
+    return 'Choose a password that differs from your current one';
+  }
   return message || 'Authentication failed';
+}
+
+/**
+ * Where Supabase sends the recovery email back to: the recovery route on the
+ * current web origin, or the app's own deep link on native.
+ */
+function buildResetRedirectUrl(): string | undefined {
+  if (Platform.OS === 'web') {
+    return typeof window !== 'undefined' ? `${window.location.origin}/reset-password` : undefined;
+  }
+  return Linking.createURL('/reset-password');
 }
 
 function isInvalidCredentials(message?: string): boolean {
@@ -430,10 +449,8 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       const trimmedEmail = email.trim();
       console.log('[Auth] Password reset requested for:', trimmedEmail);
       const supabase = getSupabase();
-      const redirectTo =
-        Platform.OS === 'web' && typeof window !== 'undefined'
-          ? `${window.location.origin}/auth`
-          : undefined;
+      const redirectTo = buildResetRedirectUrl();
+      console.log('[Auth] Password reset redirect:', redirectTo ?? '(Supabase default)');
 
       const { error } = await supabase.auth.resetPasswordForEmail(
         trimmedEmail,
@@ -449,6 +466,56 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     } catch (error: any) {
       console.error('[Auth] Password reset error:', error);
       return { success: false, error: error.message || 'Password reset failed' };
+    }
+  }, []);
+
+  /**
+   * Opens a recovery session from a native deep link (tokens or PKCE code).
+   * Web links are handled by the Supabase client's `detectSessionInUrl`.
+   */
+  const applyRecoveryLink = useCallback(async (url: string) => {
+    const credentials = parseRecoveryLink(url);
+    if (!credentials) {
+      return { success: false, error: 'This reset link is invalid or has expired.' };
+    }
+
+    try {
+      const supabase = getSupabase();
+      const { error } = credentials.kind === 'code'
+        ? await supabase.auth.exchangeCodeForSession(credentials.code)
+        : await supabase.auth.setSession({
+            access_token: credentials.accessToken,
+            refresh_token: credentials.refreshToken,
+          });
+
+      if (error) {
+        console.error('[Auth] Recovery link error:', error);
+        return { success: false, error: friendlyAuthError(error.message) };
+      }
+      return { success: true };
+    } catch (error: any) {
+      console.error('[Auth] Recovery link error:', error);
+      return { success: false, error: error?.message || 'Could not open the reset link' };
+    }
+  }, []);
+
+  /**
+   * Sets a new password for the user holding the current (recovery) session.
+   * No current password is required — Supabase authorizes by session.
+   */
+  const updatePassword = useCallback(async (newPassword: string) => {
+    try {
+      const supabase = getSupabase();
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+
+      if (error) {
+        console.error('[Auth] Password update error:', error);
+        return { success: false, error: friendlyAuthError(error.message) };
+      }
+      return { success: true };
+    } catch (error: any) {
+      console.error('[Auth] Password update error:', error);
+      return { success: false, error: error?.message || 'Could not update your password' };
     }
   }, []);
 
@@ -485,6 +552,8 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     signup,
     loginWithApple,
     resetPassword,
+    applyRecoveryLink,
+    updatePassword,
     logout,
-  }), [authState.user, authState.token, isLoading, rememberMe, login, signup, loginWithApple, resetPassword, logout]);
+  }), [authState.user, authState.token, isLoading, rememberMe, login, signup, loginWithApple, resetPassword, applyRecoveryLink, updatePassword, logout]);
 });
