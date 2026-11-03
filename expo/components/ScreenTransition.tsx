@@ -1,36 +1,20 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Platform, StyleSheet } from 'react-native';
-import { usePathname, useRootNavigationState, useSegments } from 'expo-router';
 
 interface ScreenTransitionProps {
   children: React.ReactNode;
 }
 
 /**
- * Soft fade + rise whenever the route changes. Native stack transitions already
- * animate on iOS/Android, so this is applied on web only, where screen swaps are
- * otherwise instant. Renders its children unchanged everywhere else.
+ * Soft fade-and-rise that plays as a screen mounts. Native stack transitions
+ * already animate on iOS/Android, so this is mounted on web only, where screen
+ * swaps are otherwise instant.
  */
 export default function ScreenTransition({ children }: ScreenTransitionProps) {
-  const pathname = usePathname();
-  const segments = useSegments();
-  const navigationState = useRootNavigationState();
-  const activeRoute =
-    navigationState?.routes?.[navigationState.index ?? 0]?.key ?? '';
-  // React to whichever route signal refreshes first on this router version.
-  const routeKey = `${pathname}::${segments.join('/')}::${activeRoute}::${
-    navigationState?.routes?.length ?? 0
-  }`;
-  const opacity = useRef(new Animated.Value(1)).current;
-  const lift = useRef(new Animated.Value(0)).current;
-  const lastRoute = useRef(routeKey);
+  const opacity = useRef(new Animated.Value(0.7)).current;
+  const lift = useRef(new Animated.Value(8)).current;
 
   useEffect(() => {
-    if (lastRoute.current === routeKey) return;
-    lastRoute.current = routeKey;
-
-    opacity.setValue(0.75);
-    lift.setValue(6);
     Animated.parallel([
       Animated.timing(opacity, {
         toValue: 1,
@@ -43,9 +27,7 @@ export default function ScreenTransition({ children }: ScreenTransitionProps) {
         useNativeDriver: Platform.OS !== 'web',
       }),
     ]).start();
-  }, [routeKey, opacity, lift]);
-
-  if (Platform.OS !== 'web') return <>{children}</>;
+  }, [opacity, lift]);
 
   return (
     <Animated.View

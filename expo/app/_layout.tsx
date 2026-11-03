@@ -90,9 +90,19 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Web has no native screen transition, so each screen fades and rises into
+// place as it mounts. Native platforms keep their own push animations.
+const webScreenLayout =
+  Platform.OS === 'web'
+    ? ({ children }: { children: React.ReactNode }) => (
+        <ScreenTransition>{children}</ScreenTransition>
+      )
+    : undefined;
+
 function RootLayoutNav() {
   return (
     <Stack
+      screenLayout={webScreenLayout}
       screenOptions={{
         headerBackTitle: "Back",
         headerTintColor: "#ffffff",
@@ -175,9 +185,7 @@ export default function RootLayout() {
             <GestureHandlerRootView style={layoutStyles.root}>
               <View style={layoutStyles.root}>
                 <AuthGate>
-                  <ScreenTransition>
-                    <RootLayoutNav />
-                  </ScreenTransition>
+                  <RootLayoutNav />
                 </AuthGate>
                 <NetworkBanner />
                 <GestureOnboardingGate />
