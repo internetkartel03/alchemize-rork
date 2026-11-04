@@ -84,7 +84,7 @@ struct SettingsView: View {
                         row(icon: "lock.shield.fill", tint: AZ.emerald, title: "Privacy Policy") { legal = .privacy }
                         divider
                         row(icon: "questionmark.circle.fill", tint: AZ.sky, title: "Support") {
-                            if let url = URL(string: "mailto:support@alchemize.app") { openURL(url) }
+                            if let url = URL(string: "mailto:Admin@crfenterprise.com") { openURL(url) }
                         }
                     }
                     group("DATA") {

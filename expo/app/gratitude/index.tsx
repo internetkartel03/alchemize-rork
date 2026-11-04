@@ -1,9 +1,9 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Animated, Easing, Platform, ScrollView, StyleProp, StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import { Alert, Animated, Easing, Platform, ScrollView, StyleProp, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import { TouchableOpacity } from '@/components/HapticTouchable';
 import { Stack, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, ChevronLeft, ChevronRight, Compass, Edit3, Flame, Heart, House, Plus, User } from 'lucide-react-native';
+import { ArrowLeft, ChevronLeft, ChevronRight, Compass, Edit3, Flame, Heart, House, Plus, Trash2, User } from 'lucide-react-native';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -260,6 +260,36 @@ export default function GratitudeJournalScreen() {
     router.push(`/gratitude/add?date=${selectedDate}` as any);
   }, [router, selectedDate]);
 
+  const deleteEntry = useCallback(async () => {
+    if (!selectedEntry) return;
+    try {
+      const result = await gratitudeSupabase.delete(selectedEntry.id);
+      if (!result.success) throw new Error(result.error);
+      console.log('[GratitudeJournal] Entry deleted:', selectedEntry.id);
+      await refetch();
+    } catch (error) {
+      console.error('[GratitudeJournal] Delete failed:', error);
+      Alert.alert('Delete failed', 'Could not delete this entry. Please try again.');
+    }
+  }, [refetch, selectedEntry]);
+
+  const handleDeleteEntry = useCallback(() => {
+    if (!selectedEntry) return;
+    // react-native-web's Alert has no button actions, so confirm natively on web.
+    if (Platform.OS === 'web') {
+      const confirmed =
+        typeof window !== 'undefined' &&
+        typeof window.confirm === 'function' &&
+        window.confirm('Delete this gratitude entry? This cannot be undone.');
+      if (confirmed) void deleteEntry();
+      return;
+    }
+    Alert.alert('Delete Entry', 'Delete this gratitude entry? This cannot be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => void deleteEntry() },
+    ]);
+  }, [deleteEntry, selectedEntry]);
+
   const bottomNavItems = useMemo<BottomNavItem[]>(() => {
     return [
       {
@@ -492,14 +522,24 @@ export default function GratitudeJournalScreen() {
                       <Text style={styles.entryCardTitle}>
                         {new Date(selectedDate).toLocaleDateString('default', { weekday: 'long', month: 'long', day: 'numeric' })}
                       </Text>
-                      <TouchableOpacity
-                        activeOpacity={0.85}
-                        onPress={handleEditEntry}
-                        style={styles.editButtonSmall}
-                        testID="gratitude-edit-button"
-                      >
-                        <Edit3 color="#F4C95D" size={18} strokeWidth={2} />
-                      </TouchableOpacity>
+                      <View style={styles.entryCardActions}>
+                        <TouchableOpacity
+                          activeOpacity={0.85}
+                          onPress={handleDeleteEntry}
+                          style={styles.editButtonSmall}
+                          testID="gratitude-delete-button"
+                        >
+                          <Trash2 color="rgba(255,255,255,0.55)" size={18} strokeWidth={2} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          activeOpacity={0.85}
+                          onPress={handleEditEntry}
+                          style={styles.editButtonSmall}
+                          testID="gratitude-edit-button"
+                        >
+                          <Edit3 color="#F4C95D" size={18} strokeWidth={2} />
+                        </TouchableOpacity>
+                      </View>
                     </View>
                     <Text style={styles.entryItem}>1. {selectedEntry.gratitude1}</Text>
                     {selectedEntry.gratitude2 ? (
@@ -925,6 +965,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700' as const,
     flex: 1,
+  },
+  entryCardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   editButtonSmall: {
     width: 40,

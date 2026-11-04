@@ -1,9 +1,10 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { View, StyleSheet, ScrollView, Text, ImageBackground, Platform } from 'react-native';
 import { TouchableOpacity } from '@/components/HapticTouchable';
 import { useRouter } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
-import { Play, TrendingUp, Award, ChevronRight, Plus, Dumbbell } from 'lucide-react-native';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Play, TrendingUp, Award, ChevronRight, Plus, Dumbbell, Pencil } from 'lucide-react-native';
+import FitnessGoalsModal, { type FitnessGoalTargets } from '@/components/FitnessGoalsModal';
 import { workoutTemplatesDb, workoutSessionsDb, normalizedMetricsDb, fitnessGoalsDb, fitnessPlansDb, awardsDb } from '@/lib/db/fitness';
 import type { Award as AwardType } from '@/types';
 import {
@@ -16,28 +17,12 @@ import {
   markActiveDay,
 } from '@/lib/fitness';
 import { usePedometer } from '@/hooks/use-pedometer';
-import type { WorkoutTemplate } from '@/types';
-
-function WorkoutCard({ workout, onPress }: { workout: WorkoutTemplate; onPress: () => void }) {
-  return (
-    <TouchableOpacity style={styles.workoutCard} onPress={onPress}>
-      <View style={styles.workoutCardHeader}>
-        <Text style={styles.workoutCategory}>{workout.category}</Text>
-        <Text style={styles.workoutIntensity}>{workout.intensity}</Text>
-      </View>
-      <Text style={styles.workoutTitle}>{workout.title}</Text>
-      <Text style={styles.workoutDuration}>{workout.durationMinutes} min</Text>
-    </TouchableOpacity>
-  );
-}
-
 export default function FitnessHubScreen() {
   const router = useRouter();
 
   const { data: templates = [] } = useQuery({
     queryKey: ['workoutTemplates'],
     queryFn: async () => {
-      if (Platform.OS === 'web') return [];
       const data = await workoutTemplatesDb.getAll();
       if (data.length === 0) {
         await seedWorkoutTemplates();
@@ -49,13 +34,12 @@ export default function FitnessHubScreen() {
 
   const { data: sessions = [] } = useQuery({
     queryKey: ['workoutSessions'],
-    queryFn: () => Platform.OS === 'web' ? [] : workoutSessionsDb.getAll(),
+    queryFn: () => workoutSessionsDb.getAll(),
   });
 
   const { data: todayMetric } = useQuery({
     queryKey: ['todayMetric'],
     queryFn: async () => {
-      if (Platform.OS === 'web') return null;
       const today = new Date();
       const dateStr = today.toISOString().split('T')[0];
       return await normalizedMetricsDb.getByDate(dateStr);
@@ -64,18 +48,17 @@ export default function FitnessHubScreen() {
 
   const { data: goals = [] } = useQuery({
     queryKey: ['fitnessGoals'],
-    queryFn: () => Platform.OS === 'web' ? [] : fitnessGoalsDb.getAll(),
+    queryFn: () => fitnessGoalsDb.getAll(),
   });
 
   const { data: activePlan } = useQuery({
     queryKey: ['activeFitnessPlan'],
-    queryFn: () => Platform.OS === 'web' ? null : fitnessPlansDb.getActive(),
+    queryFn: () => fitnessPlansDb.getActive(),
   });
 
   const { data: awards = [] } = useQuery({
     queryKey: ['fitnessAwards'],
     queryFn: async () => {
-      if (Platform.OS === 'web') return [];
       const data = await awardsDb.getAll();
       if (data.length === 0) {
         await seedAwards();
@@ -101,6 +84,27 @@ export default function FitnessHubScreen() {
   const activeMinutesGoal = goals.find(g => g.metric === 'active_minutes')?.dailyTarget || 30;
   const caloriesGoal = goals.find(g => g.metric === 'calories')?.dailyTarget || 500;
   const stepsGoal = goals.find(g => g.metric === 'steps')?.dailyTarget || 10000;
+
+  const [goalsModalVisible, setGoalsModalVisible] = useState(false);
+  const [savingGoals, setSavingGoals] = useState(false);
+  const queryClient = useQueryClient();
+
+  const handleSaveGoals = async (targets: FitnessGoalTargets) => {
+    setSavingGoals(true);
+    try {
+      await Promise.all([
+        fitnessGoalsDb.setTarget('active_minutes', targets.activeMinutes),
+        fitnessGoalsDb.setTarget('calories', targets.calories),
+        fitnessGoalsDb.setTarget('steps', targets.steps),
+      ]);
+      await queryClient.invalidateQueries({ queryKey: ['fitnessGoals'] });
+      setGoalsModalVisible(false);
+    } catch (error) {
+      console.error('[Fitness] Failed to save goals:', error);
+    } finally {
+      setSavingGoals(false);
+    }
+  };
 
   const handleStartWorkout = () => {
     if (!topWorkout) return;
@@ -150,7 +154,13 @@ export default function FitnessHubScreen() {
           </View>
 
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Today&apos;s Progress</Text>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Today&apos;s Progress</Text>
+              <TouchableOpacity style={styles.editGoalsButton} onPress={() => setGoalsModalVisible(true)} testID="edit-goals-button">
+                <Pencil size={12} color="#10b981" />
+                <Text style={styles.editGoalsText}>Edit Goals</Text>
+              </TouchableOpacity>
+            </View>
             <View style={styles.progressContainer}>
               {renderProgressRing(todayProgress.activeMinutes, activeMinutesGoal, '#10b981', 'Minutes')}
               {renderProgressRing(todayProgress.calories, caloriesGoal, '#f59e0b', 'Calories')}
@@ -174,20 +184,6 @@ export default function FitnessHubScreen() {
               </TouchableOpacity>
             </View>
           )}
-
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Suggested For You</Text>
-              <TouchableOpacity onPress={() => router.push('/fitness/browse' as any)}>
-                <Text style={styles.seeAllText}>See All</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.carouselContainer}>
-              {recommended.map((workout) => (
-                <WorkoutCard key={workout.id} workout={workout} onPress={() => router.push(`/fitness/workout?templateId=${workout.id}` as any)} />
-              ))}
-            </ScrollView>
-          </View>
 
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
@@ -247,6 +243,14 @@ export default function FitnessHubScreen() {
           <View style={{ height: 40 }} />
         </ScrollView>
       </ImageBackground>
+
+      <FitnessGoalsModal
+        visible={goalsModalVisible}
+        initial={{ activeMinutes: activeMinutesGoal, calories: caloriesGoal, steps: stepsGoal }}
+        saving={savingGoals}
+        onClose={() => setGoalsModalVisible(false)}
+        onSave={handleSaveGoals}
+      />
     </View>
   );
 }
@@ -286,10 +290,22 @@ const styles = StyleSheet.create({
     color: '#fff',
     marginBottom: 12,
   },
-  seeAllText: {
-    fontSize: 14,
-    color: '#6366f1',
-    fontWeight: '600' as const,
+  editGoalsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.35)',
+    marginBottom: 12,
+  },
+  editGoalsText: {
+    fontSize: 12,
+    fontWeight: '700' as const,
+    color: '#10b981',
   },
   progressContainer: {
     flexDirection: 'row',
@@ -365,46 +381,6 @@ const styles = StyleSheet.create({
   startButtonSubtitle: {
     fontSize: 14,
     color: 'rgba(255, 255, 255, 0.8)',
-  },
-  carouselContainer: {
-    marginHorizontal: -16,
-    paddingHorizontal: 16,
-  },
-  workoutCard: {
-    width: 160,
-    backgroundColor: 'rgba(26, 26, 26, 0.8)',
-    borderRadius: 16,
-    padding: 16,
-    marginRight: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  workoutCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  workoutCategory: {
-    fontSize: 11,
-    fontWeight: '600' as const,
-    color: '#6366f1',
-    textTransform: 'uppercase',
-  },
-  workoutIntensity: {
-    fontSize: 11,
-    color: '#666',
-    textTransform: 'capitalize',
-  },
-  workoutTitle: {
-    fontSize: 16,
-    fontWeight: '600' as const,
-    color: '#fff',
-    marginBottom: 4,
-  },
-  workoutDuration: {
-    fontSize: 14,
-    color: '#10b981',
-    fontWeight: '600' as const,
   },
   weekContainer: {
     flexDirection: 'row',

@@ -60,6 +60,11 @@ export interface Habit {
   section?: string;
   lastCompletedDate: string;
   createdAt: number;
+  /** Daily alarm ("HH:mm", 24h). Only scheduled when reminderEnabled is true. */
+  reminderTime?: string | null;
+  reminderEnabled?: boolean;
+  /** Identifier of the scheduled local notification, kept so the alarm can be cancelled/replaced. */
+  reminderNotificationId?: string | null;
 }
 
 export interface HabitCompletion {

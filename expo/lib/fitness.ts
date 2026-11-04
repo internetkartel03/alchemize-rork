@@ -81,11 +81,23 @@ export function getTodayProgress(sessions: WorkoutSession[], metrics: Normalized
   
   const workoutMinutes = todaySessions.reduce((sum, s) => sum + s.durationMinutes, 0);
   const workoutCalories = todaySessions.reduce((sum, s) => sum + (s.caloriesEstimate || 0), 0);
-  
+
+  // Every completed workout is already rolled into the day's normalized metric
+  // (manual, guided and Apple Health/watch imports alike), so reading both would
+  // count each workout twice. The metric row is the authoritative daily total;
+  // sessions are only the fallback when no rollup exists for today.
+  if (metrics) {
+    return {
+      activeMinutes: metrics.activeMinutes || 0,
+      calories: metrics.caloriesActive || 0,
+      steps: metrics.steps || 0,
+    };
+  }
+
   return {
-    activeMinutes: workoutMinutes + (metrics?.activeMinutes || 0),
-    calories: workoutCalories + (metrics?.caloriesActive || 0),
-    steps: metrics?.steps || 0,
+    activeMinutes: workoutMinutes,
+    calories: workoutCalories,
+    steps: 0,
   };
 }
 

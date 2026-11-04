@@ -1,7 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getCurrentUserId } from '@/lib/db/core';
+import { supabaseSecureStorage } from '@/lib/secure-storage';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
@@ -11,14 +10,14 @@ let supabaseInstance: SupabaseClient | null = null;
 /**
  * Creates (or returns) the singleton Supabase client.
  * On native platforms, uses AsyncStorage for session persistence.
- * On web, relies on localStorage (Supabase default).
+ * On web, relies on localStorage (Supabase default) and parses the
+ * session returned in the URL hash by password-recovery links.
  */
 export function getSupabase(): SupabaseClient {
   if (supabaseInstance) return supabaseInstance;
 
   if (!supabaseUrl || !supabaseAnonKey) {
     console.error('[Supabase] Missing EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY');
-    // Return a no-op client that won't crash but logs errors
     throw new Error(
       'Supabase is not configured. Please set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in your environment.'
     );
@@ -26,10 +25,11 @@ export function getSupabase(): SupabaseClient {
 
   supabaseInstance = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
-      storage: Platform.OS === 'web' ? undefined : AsyncStorage,
+      // Native sessions are chunked into Keychain/Keystore; web uses localStorage.
+      storage: Platform.OS === 'web' ? undefined : supabaseSecureStorage,
       autoRefreshToken: true,
       persistSession: true,
-      detectSessionInUrl: false,
+      detectSessionInUrl: Platform.OS === 'web',
     },
   });
 
@@ -38,12 +38,18 @@ export function getSupabase(): SupabaseClient {
 }
 
 /**
- * Returns the current authenticated user ID.
- * Uses the app's auth system (not Supabase Auth).
+ * Returns the ID of the user authenticated with Supabase Auth.
+ *
+ * Ownership is always taken from the stored Supabase session — never from a
+ * caller-supplied value. The server independently enforces the same identity
+ * through RLS (`auth.uid() = user_id`), so a forged ID cannot grant access.
  */
-export function getSupabaseUserId(): string {
-  const userId = getCurrentUserId();
-  if (!userId || userId === 'guest') {
+export async function getAuthenticatedUserId(): Promise<string> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase.auth.getSession();
+  const userId = data?.session?.user?.id;
+
+  if (error || !userId) {
     throw new Error('User is not authenticated. Please sign in.');
   }
   return userId;

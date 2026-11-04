@@ -32,10 +32,11 @@ import {
   Brain,
   ShieldCheck,
 } from 'lucide-react-native';
-import { generateObject } from '@rork-ai/toolkit-sdk';
 import { z } from 'zod';
+import { generateObject } from '@/lib/ai';
 import { foodLogsDb, appointmentsDb } from '@/lib/db';
 import { calculateFoodTotals, getAutoMealType, getConfidenceLabel, getHealthScoreColor, parseOptionalNumber } from '@/services/calorieAnalysisService';
+import { lookupBarcodeProduct } from '@/services/barcodeLookupService';
 import type { FoodLog, MealType, Appointment } from '@/types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -139,6 +140,14 @@ export default function FoodScannerScreen() {
   const [barcodeFiber, setBarcodeFiber] = useState('');
   const [barcodeMealType, setBarcodeMealType] = useState<MealType>(getAutoMealType());
   const [showBarcodeMealPicker, setShowBarcodeMealPicker] = useState(false);
+  const [barcodeLookup, setBarcodeLookup] = useState<'idle' | 'loading' | 'found' | 'not-found'>('idle');
+  const barcodeLockRef = useRef(false);
+
+  const closeBarcodeEntry = useCallback(() => {
+    barcodeLockRef.current = false;
+    setBarcodeLookup('idle');
+    setBarcodeData(null);
+  }, []);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -268,8 +277,6 @@ export default function FoodScannerScreen() {
 
   const saveMutation = useMutation({
     mutationFn: async (foods: FoodAnalysis['foods']) => {
-      if (Platform.OS === 'web') return;
-
       const logs: FoodLog[] = foods.map((food) => ({
         id: `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
         foodName: food.name,
@@ -406,14 +413,31 @@ export default function FoodScannerScreen() {
     saveFood(editedFoods);
   }, [editedFoods, saveFood]);
 
-  const handleBarcodeScanned = useCallback(({ data }: { data: string }) => {
+  const handleBarcodeScanned = useCallback(async ({ data }: { data: string }) => {
+    if (barcodeLockRef.current) return;
+    barcodeLockRef.current = true;
+
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setBarcodeData(data);
+    setBarcodeLookup('loading');
+
+    const product = await lookupBarcodeProduct(data);
+    if (!product) {
+      setBarcodeLookup('not-found');
+      return;
+    }
+
+    setBarcodeFoodName(product.brand ? `${product.brand} ${product.name}` : product.name);
+    setBarcodeCalories(product.calories != null ? String(product.calories) : '');
+    setBarcodeProtein(product.protein != null ? String(product.protein) : '');
+    setBarcodeCarbs(product.carbs != null ? String(product.carbs) : '');
+    setBarcodeFat(product.fat != null ? String(product.fat) : '');
+    setBarcodeFiber(product.fiber != null ? String(product.fiber) : '');
+    setBarcodeLookup('found');
   }, []);
 
   const barcodeSaveMutation = useMutation({
     mutationFn: async () => {
-      if (Platform.OS === 'web') return;
       if (!barcodeData || !barcodeFoodName.trim() || !barcodeCalories.trim()) return;
 
       const calories = parseFloat(barcodeCalories);
@@ -470,7 +494,7 @@ export default function FoodScannerScreen() {
       invalidateFoodLogs(queryClient);
       queryClient.invalidateQueries({ queryKey: ['appointments'] });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setBarcodeData(null);
+      closeBarcodeEntry();
       setBarcodeFoodName('');
       setBarcodeCalories('');
       setBarcodeProtein('');
@@ -541,7 +565,7 @@ export default function FoodScannerScreen() {
         />
 
         <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-          <TouchableOpacity onPress={() => setBarcodeData(null)} style={styles.headerBtn}>
+          <TouchableOpacity onPress={closeBarcodeEntry} style={styles.headerBtn}>
             <RotateCcw size={22} color="#fff" />
           </TouchableOpacity>
           <View style={styles.headerCenter}>
@@ -561,7 +585,13 @@ export default function FoodScannerScreen() {
           <View style={styles.barcodeInfoCard}>
             <Text style={styles.barcodeLabel}>Scanned Barcode</Text>
             <Text style={styles.barcodeValue}>{barcodeData}</Text>
-            <Text style={styles.barcodeHint}>Product not found in database. Please enter the details below.</Text>
+            <Text style={styles.barcodeHint}>
+              {barcodeLookup === 'loading'
+                ? 'Looking up this product...'
+                : barcodeLookup === 'found'
+                  ? 'Nutrition filled in from Open Food Facts. Adjust anything that looks off.'
+                  : 'Product not found in the database. Please enter the details below.'}
+            </Text>
           </View>
 
           <View style={styles.barcodeForm}>

@@ -53,7 +53,7 @@ enum LegalText {
         ("11. Limitation of Liability", "To the maximum extent permitted by law, Alchemize and its creators will not be liable for indirect, incidental, special, consequential, or punitive damages, or any loss of data, profits, or revenue arising from your use of the App."),
         ("12. Termination", "We may suspend or terminate access to the App if you violate these Terms or if required for security or legal reasons."),
         ("13. Governing Law", "These Terms are governed by the laws of the jurisdiction where Alchemize is operated, without regard to conflict of law rules."),
-        ("14. Contact", "For support or legal questions, contact: support@alchemize.app"),
+        ("14. Contact", "For support or legal questions, contact: Admin@crfenterprise.com"),
     ]
 
     static let privacy: [(String, String)] = [
@@ -62,11 +62,11 @@ enum LegalText {
         ("3. How We Use Information", "We use your information to:\n• Provide and operate app features\n• Save and sync your data (if sync is enabled)\n• Improve performance, reliability, and user experience\n• Provide support and respond to requests\n• Protect against fraud, abuse, or security threats"),
         ("4. Sharing", "We do not sell your personal information. We may share information with:\n• Service providers that help operate the App (hosting, analytics, storage), under confidentiality obligations\n• Legal authorities if required by law or to protect safety and rights"),
         ("5. Data Storage & Security", "Your entries are stored on your device. Account credentials are protected in the iOS Keychain. No method of storage is 100% secure."),
-        ("6. Your Choices", "• You can update your profile name in Settings\n• You can sign out at any time\n• You may request access, correction, or deletion of your data by contacting support@alchemize.app"),
+        ("6. Your Choices", "• You can update your profile name in Settings\n• You can sign out at any time\n• You may request access, correction, or deletion of your data by contacting Admin@crfenterprise.com"),
         ("7. Retention", "We keep your data for as long as your account is active or as needed to provide the App. You can reset all data from Settings at any time."),
         ("8. Children's Privacy", "Alchemize is not directed to children under 13, and we do not knowingly collect personal information from them."),
         ("9. Changes", "We may update this Privacy Policy from time to time. Continued use of the App means you accept the updated policy."),
-        ("10. Contact", "Questions? Contact support@alchemize.app"),
+        ("10. Contact", "Questions? Contact Admin@crfenterprise.com"),
     ]
 
     static let about = [

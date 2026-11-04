@@ -7,7 +7,7 @@
  * - Falls back gracefully with structured error objects
  * - Local SQLite remains as read-through cache (not modified by this service)
  */
-import { getSupabase, getSupabaseUserId, logSupabaseOp } from '@/lib/supabase';
+import { getSupabase, getAuthenticatedUserId, logSupabaseOp } from '@/lib/supabase';
 import type { GratitudeEntry } from '@/types';
 
 export interface GratitudeServiceResult {
@@ -75,7 +75,7 @@ async function fetchByDate(userId: string, entryDate: number): Promise<Gratitude
  * use upsertGratitude() instead.
  */
 async function createGratitude(entry: GratitudeEntry): Promise<GratitudeEntry> {
-  const userId = getSupabaseUserId();
+  const userId = await getAuthenticatedUserId();
   const supabase = getSupabase();
   const row = mapToRow(entry, userId);
 
@@ -95,7 +95,7 @@ async function createGratitude(entry: GratitudeEntry): Promise<GratitudeEntry> {
  * Uses the entryDate + user_id as the conflict key.
  */
 async function upsertGratitude(entry: GratitudeEntry): Promise<GratitudeEntry> {
-  const userId = getSupabaseUserId();
+  const userId = await getAuthenticatedUserId();
   const supabase = getSupabase();
   const row = mapToRow(entry, userId);
 
@@ -117,7 +117,7 @@ async function upsertGratitude(entry: GratitudeEntry): Promise<GratitudeEntry> {
  * Update an existing gratitude entry by its Supabase row id.
  */
 async function updateGratitude(entry: GratitudeEntry): Promise<GratitudeEntry> {
-  const userId = getSupabaseUserId();
+  const userId = await getAuthenticatedUserId();
   const supabase = getSupabase();
   const row = mapToRow(entry, userId);
 
@@ -143,7 +143,7 @@ async function updateGratitude(entry: GratitudeEntry): Promise<GratitudeEntry> {
  * Delete a gratitude entry by id.
  */
 async function deleteGratitude(id: string): Promise<void> {
-  const userId = getSupabaseUserId();
+  const userId = await getAuthenticatedUserId();
   const supabase = getSupabase();
   const { error } = await supabase
     .from(TABLE)
@@ -160,7 +160,7 @@ async function deleteGratitude(id: string): Promise<void> {
 export const gratitudeSupabase = {
   async getAll(): Promise<GratitudeServiceResult> {
     try {
-      const userId = getSupabaseUserId();
+      const userId = await getAuthenticatedUserId();
       const data = await fetchAllForUser(userId);
       return { success: true, data };
     } catch (error: any) {
@@ -171,7 +171,7 @@ export const gratitudeSupabase = {
 
   async getByDate(entryDate: number): Promise<GratitudeServiceResult> {
     try {
-      const userId = getSupabaseUserId();
+      const userId = await getAuthenticatedUserId();
       const data = await fetchByDate(userId, entryDate);
       return { success: true, data };
     } catch (error: any) {

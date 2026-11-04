@@ -5,8 +5,8 @@ import { useRouter } from 'expo-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Sparkles, Zap, X, ChevronLeft } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { generateObject } from '@rork-ai/toolkit-sdk';
 import { z } from 'zod';
+import { generateObject } from '@/lib/ai';
 import { workoutTemplatesDb, workoutSessionsDb, normalizedMetricsDb } from '@/lib/db/fitness';
 import { estimateCalories } from '@/lib/fitness';
 import type { WorkoutSession, WorkoutTemplate } from '@/types';
@@ -51,8 +51,6 @@ export default function AddWorkoutScreen() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (Platform.OS === 'web') return;
-
       const durationNum = parseInt(duration, 10);
       if (isNaN(durationNum) || durationNum <= 0) {
         throw new Error('Invalid duration');
@@ -92,12 +90,14 @@ export default function AddWorkoutScreen() {
       const dateStr = new Date().toISOString().split('T')[0];
       const existingMetric = await normalizedMetricsDb.getByDate(dateStr);
       if (existingMetric) {
+        // upsert() adds to the stored totals, so pass this workout's own figures
+        // as the delta — pre-adding the existing values would double them.
         await normalizedMetricsDb.upsert({
           id: existingMetric.id,
           date: dateStr,
-          activeMinutes: (existingMetric.activeMinutes || 0) + durationNum,
-          caloriesActive: (existingMetric.caloriesActive || 0) + calories,
-          steps: existingMetric.steps || 0,
+          activeMinutes: durationNum,
+          caloriesActive: calories,
+          steps: 0,
           source: 'workout',
           deviceType: 'none',
         });
@@ -228,7 +228,7 @@ Provide an estimated calorie burn based on this information. Consider typical me
           textAlignVertical="top"
         />
 
-        {workoutDescription.trim() && duration && (
+        {Boolean(workoutDescription.trim() && duration) && (
           <TouchableOpacity
             style={styles.estimateButton}
             onPress={() => estimateCaloriesMutation.mutate()}

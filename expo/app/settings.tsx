@@ -558,7 +558,27 @@ export default function SettingsScreen() {
     setEditProfileVisible(false);
   };
 
+  const performSignOut = useCallback(async () => {
+    console.log('[Settings] Signing out...');
+    try {
+      await logout();
+    } catch (error) {
+      console.error('[Settings] Error signing out:', error);
+      Alert.alert('Error', 'Failed to sign out. Please try again.');
+    }
+  }, [logout]);
+
   const handleSignOut = () => {
+    // react-native-web's Alert has no button actions, so confirm natively on web.
+    if (Platform.OS === 'web') {
+      const confirmed =
+        typeof window !== 'undefined' &&
+        typeof window.confirm === 'function' &&
+        window.confirm('Are you sure you want to sign out?');
+      if (confirmed) void performSignOut();
+      return;
+    }
+
     Alert.alert(
       'Sign Out',
       'Are you sure you want to sign out?',
@@ -567,15 +587,7 @@ export default function SettingsScreen() {
         {
           text: 'Sign Out',
           style: 'destructive',
-          onPress: async () => {
-            console.log('[Settings] Signing out...');
-            try {
-              await logout();
-            } catch (error) {
-              console.error('[Settings] Error signing out:', error);
-              Alert.alert('Error', 'Failed to sign out. Please try again.');
-            }
-          },
+          onPress: () => void performSignOut(),
         },
       ]
     );
@@ -623,7 +635,7 @@ export default function SettingsScreen() {
       const subject = encodeURIComponent(`[Alchemize] ${typeLabel[supportIssueType]}`);
       const bodyText = `Issue Type: ${typeLabel[supportIssueType]}\nUser: ${profile.displayName} (${profile.email || 'no email'})\nApp Version: ${APP_VERSION}\nPlatform: ${Platform.OS}\n\nMessage:\n${trimmed}`;
       const body = encodeURIComponent(bodyText);
-      const url = `mailto:support@alchemize.app?subject=${subject}&body=${body}`;
+      const url = `mailto:Admin@crfenterprise.com?subject=${subject}&body=${body}`;
       const canOpen = await Linking.canOpenURL(url);
       if (canOpen) {
         await Linking.openURL(url);
@@ -651,7 +663,7 @@ export default function SettingsScreen() {
         'Report Sent',
         canOpen
           ? 'Your email app has opened with your report. Send it to complete the request.'
-          : 'Your report has been saved. We will reach out at support@alchemize.app.'
+          : 'Your report has been saved. We will reach out at Admin@crfenterprise.com.'
       );
       setSupportMessage('');
       setSupportIssueType('bug');
@@ -1191,7 +1203,7 @@ export default function SettingsScreen() {
 
               <Text style={styles.legalSectionTitle}>14. Contact</Text>
               <Text style={styles.legalText}>
-                For support or legal questions, contact: support@alchemize.app
+                For support or legal questions, contact: Admin@crfenterprise.com
               </Text>
 
               <View style={styles.legalCreditWrap}>
@@ -1357,7 +1369,7 @@ export default function SettingsScreen() {
               <Text style={styles.legalSectionTitle}>6. Your Choices</Text>
               <Text style={styles.legalBullet}>• You can update your profile name and photo in Settings</Text>
               <Text style={styles.legalBullet}>• You can sign out at any time</Text>
-              <Text style={styles.legalBullet}>• You may request access, correction, or deletion of your data by contacting support@alchemize.app</Text>
+              <Text style={styles.legalBullet}>• You may request access, correction, or deletion of your data by contacting Admin@crfenterprise.com</Text>
 
               <Text style={styles.legalSectionTitle}>7. Retention</Text>
               <Text style={styles.legalText}>
@@ -1376,7 +1388,7 @@ export default function SettingsScreen() {
 
               <Text style={styles.legalSectionTitle}>10. Contact</Text>
               <Text style={styles.legalText}>
-                Questions or requests: support@alchemize.app
+                Questions or requests: Admin@crfenterprise.com
               </Text>
               <View style={styles.legalBottomPadding} />
             </ScrollView>
@@ -1455,7 +1467,7 @@ export default function SettingsScreen() {
               </PressableScale>
 
               <Text style={styles.supportFooter}>
-                Or email us directly at support@alchemize.app
+                Or email us directly at Admin@crfenterprise.com
               </Text>
               <View style={styles.legalBottomPadding} />
             </ScrollView>

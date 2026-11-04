@@ -1,12 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack, useRouter, useRootNavigationState, useSegments } from "expo-router";
 import React, { useEffect } from "react";
-import { StyleSheet, Text, Platform, View, Image } from 'react-native';
-import { TouchableOpacity } from '@/components/HapticTouchable';
+import { StyleSheet, Platform, View, Image } from 'react-native';
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { ChevronLeft } from "lucide-react-native";
 import * as SplashScreen from "expo-splash-screen";
+import BackButton from "@/components/BackButton";
+import ScreenTransition from "@/components/ScreenTransition";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { AuthProvider, useAuth } from "@/contexts/auth-context";
 import { initDatabase } from '@/lib/db/core';
@@ -14,6 +14,11 @@ import NetworkBanner from "@/components/NetworkBanner";
 import GestureOnboarding from "@/components/GestureOnboarding";
 import { registerForPushNotifications } from "@/lib/notifications";
 import { applyWebPolish } from "@/lib/web-polish";
+import { installWebAlert } from "@/lib/web-alert";
+
+// react-native-web's Alert is a no-op stub; install the browser-backed version
+// before any screen can raise a confirmation or error dialog.
+installWebAlert();
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -25,24 +30,6 @@ const queryClient = new QueryClient({
     },
   },
 });
-
-function BackButton() {
-  const router = useRouter();
-  const navState = useRootNavigationState();
-  const canGoBack = (navState?.routes?.length ?? 0) > 1;
-  if (!canGoBack) return null;
-  return (
-    <TouchableOpacity
-      onPress={() => router.back()}
-      style={layoutStyles.backButton}
-      activeOpacity={0.7}
-      testID="global-back-button"
-    >
-      <ChevronLeft color="#ffffff" size={18} strokeWidth={2.5} />
-      <Text style={layoutStyles.backButtonText}>Back</Text>
-    </TouchableOpacity>
-  );
-}
 
 function GestureOnboardingGate() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -57,21 +44,25 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   const navState = useRootNavigationState();
 
   const inAuth = segments[0] === 'auth';
+  // Password-recovery links land here with a short-lived session that must not
+  // be bounced to the app before the user sets a new password. The route is
+  // also reachable without a session so an expired link can explain itself.
+  const inRecovery = segments[0] === 'reset-password';
   // Whether a redirect is needed to align the route with auth state.
   // While true, we hold the splash screen so screens don't mount and
   // immediately unmount (which aborts in-flight image fetches → AbortError).
   const needsRedirect =
-    (!isAuthenticated && !inAuth) || (isAuthenticated && inAuth);
+    (!isAuthenticated && !inAuth && !inRecovery) || (isAuthenticated && inAuth);
 
   useEffect(() => {
     if (isLoading) return;
     if (!navState?.key) return;
-    if (!isAuthenticated && !inAuth) {
+    if (!isAuthenticated && !inAuth && !inRecovery) {
       router.replace('/auth');
     } else if (isAuthenticated && inAuth) {
       router.replace('/');
     }
-  }, [isAuthenticated, isLoading, inAuth, navState?.key, router]);
+  }, [isAuthenticated, isLoading, inAuth, inRecovery, navState?.key, router]);
 
   const [failsafe, setFailsafe] = React.useState(false);
   useEffect(() => {
@@ -104,24 +95,36 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Web has no native screen transition, so each screen fades and rises into
+// place as it mounts. Native platforms keep their own push animations.
+const webScreenLayout =
+  Platform.OS === 'web'
+    ? ({ children }: { children: React.ReactNode }) => (
+        <ScreenTransition>{children}</ScreenTransition>
+      )
+    : undefined;
+
 function RootLayoutNav() {
   return (
     <Stack
+      screenLayout={webScreenLayout}
       screenOptions={{
         headerBackTitle: "Back",
         headerTintColor: "#ffffff",
         headerStyle: { backgroundColor: '#0c0520' },
         headerShadowVisible: false,
-        headerTitleStyle: { color: '#ffffff' },
+        headerTitleStyle: { color: '#ffffff', fontSize: 18, fontWeight: '600' as const },
         headerLeft: () => <BackButton />,
         gestureEnabled: true,
         fullScreenGestureEnabled: true,
         animation: 'slide_from_right',
-        animationDuration: 280,
+        animationDuration: 260,
+        animationMatchesGesture: true,
         contentStyle: { backgroundColor: '#0c0520' },
       }}
     >
       <Stack.Screen name="auth" options={{ title: "Welcome", headerShown: false }} />
+      <Stack.Screen name="reset-password" options={{ title: "Set New Password", headerShown: false }} />
       <Stack.Screen name="index" options={{ title: "Alchemize", headerShown: false }} />
       <Stack.Screen name="manifestation-board/index" options={{ title: "Portal Board", headerShown: true }} />
       <Stack.Screen name="manifestation-board/[id]" options={{ title: "Manifestation Detail", headerStyle: { backgroundColor: '#0c0520' }, headerTintColor: '#ffffff' }} />
@@ -203,18 +206,6 @@ export default function RootLayout() {
 const layoutStyles = StyleSheet.create({
   root: {
     flex: 1,
-  },
-  backButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingVertical: 6,
-    paddingRight: 8,
-  },
-  backButtonText: {
-    color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '600' as const,
   },
   splash: {
     flex: 1,

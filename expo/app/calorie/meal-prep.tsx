@@ -71,14 +71,12 @@ export default function MealPrepScreen() {
   const { data: mealPlans = [] } = useQuery({
     queryKey: ['mealPrepPlans', selectedWeek],
     queryFn: async () => {
-      if (Platform.OS === 'web') return [];
       return mealPrepPlansDb.getByWeek(selectedWeek);
     },
   });
 
   const createMutation = useMutation({
     mutationFn: async (plan: MealPrepPlan) => {
-      if (Platform.OS === 'web') return;
       return mealPrepPlansDb.create(plan);
     },
     onSuccess: () => {
@@ -90,7 +88,6 @@ export default function MealPrepScreen() {
 
   const updateMutation = useMutation({
     mutationFn: async (plan: MealPrepPlan) => {
-      if (Platform.OS === 'web') return;
       return mealPrepPlansDb.update(plan);
     },
     onSuccess: () => {
@@ -102,7 +99,6 @@ export default function MealPrepScreen() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      if (Platform.OS === 'web') return;
       return mealPrepPlansDb.delete(id);
     },
     onSuccess: () => {
@@ -113,7 +109,6 @@ export default function MealPrepScreen() {
 
   const toggleCompleteMutation = useMutation({
     mutationFn: async (plan: MealPrepPlan) => {
-      if (Platform.OS === 'web') return;
       return mealPrepPlansDb.update({ ...plan, isCompleted: !plan.isCompleted });
     },
     onSuccess: () => {

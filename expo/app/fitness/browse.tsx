@@ -24,7 +24,6 @@ export default function BrowseWorkoutsScreen() {
   const { data: templates = [], isLoading } = useQuery({
     queryKey: ['workoutTemplates'],
     queryFn: async () => {
-      if (Platform.OS === 'web') return [];
       const data = await workoutTemplatesDb.getAll();
       if (data.length === 0) {
         await seedWorkoutTemplates();

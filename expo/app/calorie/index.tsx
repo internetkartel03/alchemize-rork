@@ -65,7 +65,6 @@ export default function CalorieTrackerScreen() {
   const { data: profile } = useQuery({
     queryKey: ['nutritionProfile'],
     queryFn: async () => {
-      if (Platform.OS === 'web') return null;
       return userNutritionProfileDb.get();
     },
   });
@@ -73,7 +72,6 @@ export default function CalorieTrackerScreen() {
   const { data: foodLogs = [] } = useQuery({
     queryKey: ['foodLogs', startOfDay, endOfDay],
     queryFn: async () => {
-      if (Platform.OS === 'web') return [];
       return foodLogsDb.getByDate(startOfDay, endOfDay);
     },
   });
@@ -81,14 +79,12 @@ export default function CalorieTrackerScreen() {
   const { data: waterLogs = [] } = useQuery({
     queryKey: ['waterLogs', startOfDay, endOfDay],
     queryFn: async () => {
-      if (Platform.OS === 'web') return [];
       return waterLogsDb.getByDate(startOfDay, endOfDay);
     },
   });
 
   const addWaterMutation = useMutation({
     mutationFn: async (amount: number) => {
-      if (Platform.OS === 'web') return;
       const waterLog: WaterLog = {
         id: Date.now().toString(),
         amount,

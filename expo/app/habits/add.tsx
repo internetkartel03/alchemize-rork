@@ -5,8 +5,9 @@ import { useRouter } from 'expo-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
-import { X, Timer, CheckSquare, Hash } from 'lucide-react-native';
+import { X, Timer, CheckSquare, Hash, Bell } from 'lucide-react-native';
 import { habitsDb } from '@/lib/db';
+import { isAlarmSupported, isValidAlarmTime, scheduleHabitAlarm } from '@/lib/habitAlarms';
 import type { Habit, HabitType } from '@/types';
 import { ASSETS } from '@/constants/assets';
 
@@ -39,9 +40,19 @@ export default function AddHabitScreen() {
   const [icon, setIcon] = useState('✨');
   const [goal, setGoal] = useState('1');
   const [goalUnit, setGoalUnit] = useState<'minutes' | 'hours' | 'times'>('times');
+  const [alarmEnabled, setAlarmEnabled] = useState(false);
+  const [alarmTime, setAlarmTime] = useState('');
 
   const createMutation = useMutation({
-    mutationFn: (habit: Habit) => habitsDb.create(habit),
+    mutationFn: async (habit: Habit) => {
+      await habitsDb.create(habit);
+
+      // Schedule the daily alarm and store its id so it can be replaced or cancelled.
+      const notificationId = await scheduleHabitAlarm(habit);
+      if (notificationId) {
+        await habitsDb.update({ ...habit, reminderNotificationId: notificationId });
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['habits'] });
       router.back();
@@ -66,6 +77,11 @@ export default function AddHabitScreen() {
       return;
     }
 
+    if (alarmEnabled && !isValidAlarmTime(alarmTime)) {
+      Alert.alert('Set an alarm time', 'Enter a time like 07:30 (24-hour format).');
+      return;
+    }
+
     const goalNum = parseInt(goal) || 1;
 
     const habit: Habit = {
@@ -82,6 +98,9 @@ export default function AddHabitScreen() {
       section,
       lastCompletedDate: '',
       createdAt: Date.now(),
+      reminderEnabled: alarmEnabled,
+      reminderTime: alarmEnabled ? alarmTime.trim() : null,
+      reminderNotificationId: null,
     };
 
     createMutation.mutate(habit);
@@ -232,6 +251,34 @@ export default function AddHabitScreen() {
                 </TouchableOpacity>
               ))}
             </View>
+
+            <Text style={styles.label}>Daily Alarm</Text>
+            <View style={styles.alarmRow}>
+              <TouchableOpacity
+                style={[styles.alarmToggle, alarmEnabled && styles.alarmToggleActive]}
+                onPress={() => setAlarmEnabled((prev) => !prev)}
+                testID="habit-alarm-toggle"
+              >
+                <Bell color={alarmEnabled ? '#0B0B1A' : '#C9A7FF'} size={18} />
+                <Text style={[styles.alarmToggleText, alarmEnabled && styles.alarmToggleTextActive]}>
+                  {alarmEnabled ? 'Alarm On' : 'Alarm Off'}
+                </Text>
+              </TouchableOpacity>
+              {alarmEnabled && (
+                <TextInput
+                  style={[styles.input, styles.alarmInput]}
+                  value={alarmTime}
+                  onChangeText={setAlarmTime}
+                  placeholder="07:30"
+                  placeholderTextColor="rgba(201, 167, 255, 0.4)"
+                  keyboardType={Platform.OS === 'web' ? 'default' : 'numbers-and-punctuation'}
+                  testID="habit-alarm-time"
+                />
+              )}
+            </View>
+            {alarmEnabled && !isAlarmSupported() && (
+              <Text style={styles.alarmHint}>Alarms ring on the iOS and Android app.</Text>
+            )}
           </BlurView>
 
           <TouchableOpacity
@@ -463,6 +510,45 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#C9A7FF',
     fontWeight: '600' as const,
+  },
+  alarmRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 12,
+    marginBottom: 16,
+  },
+  alarmToggle: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(201, 167, 255, 0.3)',
+    backgroundColor: 'rgba(201, 167, 255, 0.08)',
+  },
+  alarmToggleActive: {
+    backgroundColor: '#FFD700',
+    borderColor: '#FFD700',
+  },
+  alarmToggleText: {
+    fontSize: 14,
+    fontWeight: '700' as const,
+    color: '#C9A7FF',
+  },
+  alarmToggleTextActive: {
+    color: '#0B0B1A',
+  },
+  alarmInput: {
+    flex: 1,
+    marginBottom: 0,
+    textAlign: 'center' as const,
+  },
+  alarmHint: {
+    fontSize: 12,
+    color: 'rgba(201, 167, 255, 0.6)',
+    marginBottom: 16,
   },
   saveButton: {
     borderRadius: 16,

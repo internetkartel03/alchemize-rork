@@ -83,7 +83,6 @@ export default function NutritionProfileScreen() {
   const { data: existingProfile } = useQuery({
     queryKey: ['nutritionProfile'],
     queryFn: async () => {
-      if (Platform.OS === 'web') return null;
       return userNutritionProfileDb.get();
     },
   });
@@ -148,8 +147,6 @@ export default function NutritionProfileScreen() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      if (Platform.OS === 'web') return;
-      
       const profile: UserNutritionProfile = {
         id: existingProfile?.id || 'main',
         height: feetInchesToCm(parseInt(heightFeet) || 5, parseInt(heightInches) || 7),
