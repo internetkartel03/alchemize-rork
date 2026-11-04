@@ -1,9 +1,9 @@
 import { invalidateFoodLogs } from '../../services/queryInvalidationService';
-import React, { useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { View, StyleSheet, TextInput, Text, ScrollView, Alert, Platform, KeyboardAvoidingView } from 'react-native';
 import { TouchableOpacity } from '@/components/HapticTouchable';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
@@ -39,9 +39,24 @@ const QUICK_FOODS = [
 
 export default function AddMealScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ meal?: string }>();
+  const params = useLocalSearchParams<{ meal?: string; id?: string }>();
+  const foodLogId = typeof params.id === 'string' ? params.id : undefined;
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
+  const {
+    data: existingFoodLog,
+    isLoading: isLoadingExistingFoodLog,
+    isError: isExistingFoodLogError,
+  } = useQuery({
+    queryKey: ['foodLogs', 'edit', foodLogId],
+    queryFn: async () => {
+      const logs = await foodLogsDb.getAll();
+      const log = logs.find((item) => item.id === foodLogId);
+      if (!log) throw new Error('Food entry not found or no longer available.');
+      return log;
+    },
+    enabled: Boolean(foodLogId),
+  });
 
   const initialMealType = (params.meal as MealType) || 'lunch';
   
@@ -55,12 +70,62 @@ export default function AddMealScreen() {
   const [showMealPicker, setShowMealPicker] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const createMutation = useMutation({
+  useEffect(() => {
+    if (!existingFoodLog) return;
+    setName(existingFoodLog.foodName);
+    setCalories(String(existingFoodLog.calories));
+    setProtein(existingFoodLog.proteinGrams == null ? '' : String(existingFoodLog.proteinGrams));
+    setCarbs(existingFoodLog.carbGrams == null ? '' : String(existingFoodLog.carbGrams));
+    setFat(existingFoodLog.fatGrams == null ? '' : String(existingFoodLog.fatGrams));
+    setServingSize(existingFoodLog.servingDescription);
+    setMealType(existingFoodLog.mealType);
+  }, [existingFoodLog]);
+
+  useEffect(() => {
+    if (!foodLogId || !isExistingFoodLogError) return;
+    Alert.alert('Food entry unavailable', 'This entry is no longer available for this account.', [
+      { text: 'OK', onPress: () => router.back() },
+    ]);
+  }, [foodLogId, isExistingFoodLogError, router]);
+
+  const saveMutation = useMutation({
     mutationFn: async (foodLog: FoodLog) => {
+      if (existingFoodLog) {
+        await foodLogsDb.update(foodLog);
+        let calendarSyncFailed = false;
+        if (foodLog.calendarEventId) {
+          try {
+            const linkedAppointment = (await appointmentsDb.getAll()).find((item) => item.id === foodLog.calendarEventId);
+            if (linkedAppointment) {
+              await appointmentsDb.update({
+                ...linkedAppointment,
+                title: `${foodLog.foodName} (${foodLog.mealType})`,
+                notes: `${foodLog.calories} cal | P: ${foodLog.proteinGrams || 0}g C: ${foodLog.carbGrams || 0}g F: ${foodLog.fatGrams || 0}g`,
+                metadata: JSON.stringify({
+                  foodLogId: foodLog.id,
+                  calories: foodLog.calories,
+                  protein: foodLog.proteinGrams,
+                  carbs: foodLog.carbGrams,
+                  fat: foodLog.fatGrams,
+                  fiber: foodLog.fiberGrams,
+                  source: foodLog.sourceType,
+                  isLocked: foodLog.isLocked,
+                }),
+              });
+            } else {
+              calendarSyncFailed = true;
+            }
+          } catch (error) {
+            console.error('[AddFood] Calendar sync failed:', error);
+            calendarSyncFailed = true;
+          }
+        }
+        return { calendarSyncFailed };
+      }
+
       const calendarEventId = `cal-${Date.now()}`;
       const loggedDate = new Date(foodLog.loggedAt);
       const timeStr = loggedDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-      
       const calendarEvent: Appointment = {
         id: calendarEventId,
         title: `${foodLog.foodName} (${foodLog.mealType})`,
@@ -81,16 +146,30 @@ export default function AddMealScreen() {
           isLocked: foodLog.isLocked,
         }),
       };
-      
+
       await appointmentsDb.create(calendarEvent);
-      
-      const updatedFoodLog = { ...foodLog, calendarEventId };
-      return foodLogsDb.create(updatedFoodLog);
+      try {
+        await foodLogsDb.create({ ...foodLog, calendarEventId });
+      } catch (error) {
+        try {
+          await appointmentsDb.delete(calendarEventId);
+        } catch {
+          throw new Error('The food entry could not be saved, and its linked nutrition appointment could not be cleaned up. Please check Appointments.');
+        }
+        throw error;
+      }
+      return { calendarSyncFailed: false };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       invalidateFoodLogs(queryClient);
-      queryClient.invalidateQueries({ queryKey: ['appointments'] });
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (result.calendarSyncFailed) {
+        Alert.alert('Saved with warning', 'The food entry was saved, but its linked calendar item could not be refreshed.', [
+          { text: 'OK', onPress: () => router.back() },
+        ]);
+        return;
+      }
       router.back();
     },
     onError: (error: any) => {
@@ -99,7 +178,7 @@ export default function AddMealScreen() {
     },
   });
 
-  const { mutate: createFood } = createMutation;
+  const { mutate: saveFood } = saveMutation;
 
   const handleSave = useCallback(() => {
     if (!name.trim()) {
@@ -112,24 +191,24 @@ export default function AddMealScreen() {
     }
 
     const foodLog: FoodLog = {
-      id: Date.now().toString(),
+      id: existingFoodLog?.id ?? Date.now().toString(),
       foodName: name.trim(),
       servingDescription: servingSize.trim() || '1 serving',
       calories: parseFloat(calories),
       proteinGrams: protein ? parseFloat(protein) : null,
       carbGrams: carbs ? parseFloat(carbs) : null,
       fatGrams: fat ? parseFloat(fat) : null,
-      sugarGrams: null,
-      fiberGrams: null,
+      sugarGrams: existingFoodLog?.sugarGrams ?? null,
+      fiberGrams: existingFoodLog?.fiberGrams ?? null,
       mealType,
-      sourceType: 'manual',
-      loggedAt: Date.now(),
-      isLocked: true,
-      calendarEventId: null,
+      sourceType: existingFoodLog?.sourceType ?? 'manual',
+      loggedAt: existingFoodLog?.loggedAt ?? Date.now(),
+      isLocked: existingFoodLog?.isLocked ?? true,
+      calendarEventId: existingFoodLog?.calendarEventId ?? null,
     };
 
-    createFood(foodLog);
-  }, [name, calories, protein, carbs, fat, servingSize, mealType, createFood]);
+    saveFood(foodLog);
+  }, [name, calories, protein, carbs, fat, servingSize, mealType, existingFoodLog, saveFood]);
 
   const handleQuickFood = useCallback((food: typeof QUICK_FOODS[0]) => {
     setName(food.name);
@@ -164,6 +243,9 @@ export default function AddMealScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
+        {foodLogId && isLoadingExistingFoodLog ? <Text style={styles.sectionLabel}>Loading food entry...</Text> : null}
+        {foodLogId && isExistingFoodLogError ? <Text style={styles.sectionLabel}>Unable to load this entry.</Text> : null}
+        <Text style={styles.sectionLabel}>{foodLogId ? 'Edit Food Entry' : 'Log Food'}</Text>
         <View style={styles.mealTypeSection}>
           <Text style={styles.sectionLabel}>Log to</Text>
           <TouchableOpacity
@@ -355,11 +437,11 @@ export default function AddMealScreen() {
         <TouchableOpacity
           style={styles.saveButton}
           onPress={handleSave}
-          disabled={createMutation.isPending}
+          disabled={saveMutation.isPending || (Boolean(foodLogId) && (isLoadingExistingFoodLog || !existingFoodLog))}
           activeOpacity={0.85}
         >
           <Text style={styles.saveButtonText}>
-            {createMutation.isPending ? 'Saving...' : 'Log Food'}
+            {saveMutation.isPending ? 'Saving...' : (foodLogId ? 'Save Changes' : 'Log Food')}
           </Text>
         </TouchableOpacity>
       </View>
