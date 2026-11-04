@@ -1283,23 +1283,43 @@ export const habitsDb = {
   async delete(id: string): Promise<void> {
     const database = await ensureDatabase();
     const userId = getCurrentUserId() ?? 'guest';
-    await database.runAsync('DELETE FROM habits WHERE id = ? AND userId = ?', [id, userId]);
+    await database.withTransactionAsync(async () => {
+      await database.runAsync(
+        'DELETE FROM habit_completions WHERE habitId IN (SELECT id FROM habits WHERE id = ? AND userId = ?)',
+        [id, userId]
+      );
+      await database.runAsync('DELETE FROM habits WHERE id = ? AND userId = ?', [id, userId]);
+    });
   },
 };
 
 export const habitCompletionsDb = {
   async getByHabitId(habitId: string): Promise<HabitCompletion[]> {
     const database = await ensureDatabase();
-    return database.getAllAsync<HabitCompletion>('SELECT * FROM habit_completions WHERE habitId = ? ORDER BY completedAt DESC', [habitId]);
+    const userId = getCurrentUserId() ?? 'guest';
+    return database.getAllAsync<HabitCompletion>(
+      'SELECT completion.* FROM habit_completions AS completion INNER JOIN habits AS habit ON habit.id = completion.habitId WHERE completion.habitId = ? AND habit.userId = ? ORDER BY completion.completedAt DESC',
+      [habitId, userId]
+    );
   },
   
   async getAll(): Promise<HabitCompletion[]> {
     const database = await ensureDatabase();
-    return database.getAllAsync<HabitCompletion>('SELECT * FROM habit_completions ORDER BY completedAt DESC');
+    const userId = getCurrentUserId() ?? 'guest';
+    return database.getAllAsync<HabitCompletion>(
+      'SELECT completion.* FROM habit_completions AS completion INNER JOIN habits AS habit ON habit.id = completion.habitId WHERE habit.userId = ? ORDER BY completion.completedAt DESC',
+      [userId]
+    );
   },
   
   async create(completion: HabitCompletion): Promise<void> {
     const database = await ensureDatabase();
+    const userId = getCurrentUserId() ?? 'guest';
+    const habit = await database.getFirstAsync<{ id: string }>(
+      'SELECT id FROM habits WHERE id = ? AND userId = ?',
+      [completion.habitId, userId]
+    );
+    if (!habit) throw new Error('Habit not found or no longer available.');
     await database.runAsync(
       'INSERT INTO habit_completions (id, habitId, completionDate, value, notes, completedAt) VALUES (?, ?, ?, ?, ?, ?)',
       [completion.id, completion.habitId, completion.completionDate, completion.value, completion.notes, completion.completedAt]
@@ -1308,7 +1328,11 @@ export const habitCompletionsDb = {
   
   async delete(id: string): Promise<void> {
     const database = await ensureDatabase();
-    await database.runAsync('DELETE FROM habit_completions WHERE id = ?', [id]);
+    const userId = getCurrentUserId() ?? 'guest';
+    await database.runAsync(
+      'DELETE FROM habit_completions WHERE id = ? AND EXISTS (SELECT 1 FROM habits WHERE habits.id = habit_completions.habitId AND habits.userId = ?)',
+      [id, userId]
+    );
   },
 };
 
