@@ -93,7 +93,7 @@ begin
 end;
 $$;
 
-revoke all on function public.consume_ai_request() from public;
+revoke all on function public.consume_ai_request() from public, anon;
 grant execute on function public.consume_ai_request() to authenticated;
 
 comment on table public.ai_request_usage is
