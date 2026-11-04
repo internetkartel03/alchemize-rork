@@ -13,8 +13,10 @@ interface FitnessGoalsModalProps {
   visible: boolean;
   initial: FitnessGoalTargets;
   saving?: boolean;
+  hasCustomGoals?: boolean;
   onClose: () => void;
   onSave: (targets: FitnessGoalTargets) => void;
+  onDelete?: () => void;
 }
 
 const FIELDS = [
@@ -25,7 +27,7 @@ const FIELDS = [
 
 type FieldKey = typeof FIELDS[number]['key'];
 
-export default function FitnessGoalsModal({ visible, initial, saving = false, onClose, onSave }: FitnessGoalsModalProps) {
+export default function FitnessGoalsModal({ visible, initial, saving = false, hasCustomGoals = false, onClose, onSave, onDelete }: FitnessGoalsModalProps) {
   const [draft, setDraft] = useState<Record<FieldKey, string>>({
     activeMinutes: String(initial.activeMinutes),
     calories: String(initial.calories),
@@ -96,6 +98,18 @@ export default function FitnessGoalsModal({ visible, initial, saving = false, on
                 <Text style={styles.saveText}>{saving ? 'Saving...' : 'Save Goals'}</Text>
               </TouchableOpacity>
             </View>
+            {hasCustomGoals && (
+              <TouchableOpacity
+                style={styles.removeGoalsButton}
+                onPress={onDelete}
+                disabled={saving}
+                testID="goals-delete"
+                accessibilityRole="button"
+                accessibilityLabel="Remove custom fitness goals and return to default targets"
+              >
+                <Text style={styles.removeGoalsText}>Remove Custom Goals</Text>
+              </TouchableOpacity>
+            )}
           </Pressable>
         </KeyboardAvoidingView>
       </Pressable>
@@ -189,5 +203,15 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#fff',
+  },
+  removeGoalsButton: {
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginTop: 4,
+  },
+  removeGoalsText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#ef4444',
   },
 });
