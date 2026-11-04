@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
-import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
+import NetInfo, { NetInfoState } from '@/lib/netInfo';
 import { WifiOff, Wifi } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
