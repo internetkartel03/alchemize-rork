@@ -1,10 +1,10 @@
 import { invalidateGoals, invalidateTasks } from '../services/queryInvalidationService';
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { View, StyleSheet, Text, ScrollView, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { TouchableOpacity } from '@/components/HapticTouchable';
 import { useRouter } from 'expo-router';
 import { hapticSelection, hapticSuccess } from '@/lib/haptics';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { tasksDb, goalsDb, mealsDb, transactionsDb } from '@/lib/db';
 import { gratitudeSupabase } from '@/services/gratitude.service';
 import type { Task, Goal, Meal, Transaction, GratitudeEntry } from '@/types';
@@ -16,6 +16,16 @@ export default function QuickAddScreen() {
   const queryClient = useQueryClient();
   const [selectedType, setSelectedType] = useState<typeof QUICK_ADD_OPTIONS[number]>('Task');
   const [input, setInput] = useState('');
+  const [transactionAmount, setTransactionAmount] = useState('');
+  const [transactionCategory, setTransactionCategory] = useState('');
+  const [transactionNote, setTransactionNote] = useState('');
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  const { data: transactions = [] } = useQuery({
+    queryKey: ['transactions'],
+    queryFn: () => transactionsDb.getAll(),
+  });
 
   const createTaskMutation = useMutation({
     mutationFn: (task: Task) => tasksDb.create(task),
@@ -44,8 +54,50 @@ export default function QuickAddScreen() {
   const createTransactionMutation = useMutation({
     mutationFn: (transaction: Transaction) => transactionsDb.create(transaction),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      router.back();
+      void queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      setTransactionAmount('');
+      setTransactionCategory('');
+      setTransactionNote('');
+      Alert.alert('Saved', 'Transaction added.');
+      hapticSuccess();
+    },
+    onError: (error) => {
+      console.error('[QuickAdd] Transaction save failed:', error);
+      Alert.alert('Save failed', error instanceof Error ? error.message : 'Could not save transaction.');
+    },
+  });
+
+  const updateTransactionMutation = useMutation({
+    mutationFn: (transaction: Transaction) => transactionsDb.update(transaction),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      setEditingTransaction(null);
+      setTransactionAmount('');
+      setTransactionCategory('');
+      setTransactionNote('');
+      Alert.alert('Saved', 'Transaction updated.');
+      hapticSuccess();
+    },
+    onError: (error) => {
+      console.error('[QuickAdd] Transaction update failed:', error);
+      Alert.alert('Save failed', error instanceof Error ? error.message : 'Could not update transaction.');
+    },
+  });
+
+  const deleteTransactionMutation = useMutation({
+    mutationFn: (id: string) => transactionsDb.delete(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      if (editingTransaction && transactions.some((transaction) => transaction.id === editingTransaction.id)) {
+        setEditingTransaction(null);
+        setTransactionAmount('');
+        setTransactionCategory('');
+        setTransactionNote('');
+      }
+    },
+    onError: (error) => {
+      console.error('[QuickAdd] Transaction delete failed:', error);
+      Alert.alert('Delete failed', error instanceof Error ? error.message : 'Could not delete transaction.');
     },
   });
 
