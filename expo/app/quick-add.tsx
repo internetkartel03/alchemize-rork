@@ -86,9 +86,9 @@ export default function QuickAddScreen() {
 
   const deleteTransactionMutation = useMutation({
     mutationFn: (id: string) => transactionsDb.delete(id),
-    onSuccess: () => {
+    onSuccess: (_data, deletedId) => {
       void queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      if (editingTransaction && transactions.some((transaction) => transaction.id === editingTransaction.id)) {
+      if (editingTransaction?.id === deletedId) {
         setEditingTransaction(null);
         setTransactionAmount('');
         setTransactionCategory('');
