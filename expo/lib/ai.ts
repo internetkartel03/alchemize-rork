@@ -1,11 +1,11 @@
 import { z } from 'zod';
-import { getSupabase } from '@/lib/supabase';
+import { getSupabase } from './supabase';
 
 /**
- * Client for this app's own AI service (see backend/ai/server.mjs).
+ * Client for the authenticated Supabase Edge Function `ai-object`.
  *
- * The model provider key lives only in the backend service, so it never ships in
- * the Expo bundle. Set EXPO_PUBLIC_AI_API_URL to that service's URL.
+ * Supabase attaches the active user session to the request. Provider credentials
+ * remain in Supabase Function Secrets and never ship in the Expo bundle.
  */
 
 export type AiMessageContentPart =
