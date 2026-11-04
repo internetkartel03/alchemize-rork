@@ -1391,16 +1391,18 @@ export const transactionsDb = {
   async update(transaction: Transaction): Promise<void> {
     const database = await ensureDatabase();
     const userId = getCurrentUserId() ?? 'guest';
-    await database.runAsync(
+    const result = await database.runAsync(
       'UPDATE transactions SET date = ?, amount = ?, category = ?, note = ?, dayOfWeek = ?, time = ?, reminderEnabled = ?, reminderTime = ?, isRecurring = ? WHERE id = ? AND userId = ?',
       [transaction.date, transaction.amount, transaction.category, transaction.note, transaction.dayOfWeek, transaction.time, transaction.reminderEnabled ? 1 : 0, transaction.reminderTime, transaction.isRecurring ? 1 : 0, transaction.id, userId]
     );
+    if (result?.changes === 0) throw new Error('Transaction not found or no longer available for this account.');
   },
   
   async delete(id: string): Promise<void> {
     const database = await ensureDatabase();
     const userId = getCurrentUserId() ?? 'guest';
-    await database.runAsync('DELETE FROM transactions WHERE id = ? AND userId = ?', [id, userId]);
+    const result = await database.runAsync('DELETE FROM transactions WHERE id = ? AND userId = ?', [id, userId]);
+    if (result?.changes === 0) throw new Error('Transaction not found or no longer available for this account.');
   },
 };
 
@@ -1415,15 +1417,26 @@ export const financialIncomeDb = {
     const database = await ensureDatabase();
     const userId = getCurrentUserId() ?? 'guest';
     await database.runAsync(
-      'INSERT INTO financial_income (id, userId, incomeGross, incomeNet, taxAmount, taxPercentage, deductions, incomeCategory, incomeDate, notes, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [income.id, userId, income.incomeGross, income.incomeNet, income.taxAmount, income.taxPercentage, income.deductions, income.incomeCategory, income.incomeDate, income.notes, income.createdAt]
+      'INSERT INTO financial_income (id, userId, incomeTitle, incomeGross, incomeNet, taxAmount, taxPercentage, deductions, incomeCategory, incomeDate, notes, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [income.id, userId, income.incomeTitle ?? '', income.incomeGross, income.incomeNet, income.taxAmount, income.taxPercentage, income.deductions, income.incomeCategory, income.incomeDate, income.notes, income.createdAt]
     );
+  },
+  
+  async update(income: FinancialIncome): Promise<void> {
+    const database = await ensureDatabase();
+    const userId = getCurrentUserId() ?? 'guest';
+    const result = await database.runAsync(
+      'UPDATE financial_income SET incomeTitle = ?, incomeGross = ?, incomeNet = ?, taxAmount = ?, taxPercentage = ?, deductions = ?, incomeCategory = ?, notes = ? WHERE id = ? AND userId = ?',
+      [income.incomeTitle ?? '', income.incomeGross, income.incomeNet, income.taxAmount, income.taxPercentage, income.deductions, income.incomeCategory, income.notes, income.id, userId]
+    );
+    if (result?.changes === 0) throw new Error('Income entry not found or no longer available for this account.');
   },
   
   async delete(id: string): Promise<void> {
     const database = await ensureDatabase();
     const userId = getCurrentUserId() ?? 'guest';
-    await database.runAsync('DELETE FROM financial_income WHERE id = ? AND userId = ?', [id, userId]);
+    const result = await database.runAsync('DELETE FROM financial_income WHERE id = ? AND userId = ?', [id, userId]);
+    if (result?.changes === 0) throw new Error('Income entry not found or no longer available for this account.');
   },
 };
 
@@ -1443,10 +1456,21 @@ export const financialExpenseDb = {
     );
   },
   
+  async update(expense: FinancialExpense): Promise<void> {
+    const database = await ensureDatabase();
+    const userId = getCurrentUserId() ?? 'guest';
+    const result = await database.runAsync(
+      'UPDATE financial_expenses SET expenseName = ?, expenseAmount = ?, expenseCategory = ?, notes = ? WHERE id = ? AND userId = ?',
+      [expense.expenseName, expense.expenseAmount, expense.expenseCategory, expense.notes, expense.id, userId]
+    );
+    if (result?.changes === 0) throw new Error('Expense entry not found or no longer available for this account.');
+  },
+  
   async delete(id: string): Promise<void> {
     const database = await ensureDatabase();
     const userId = getCurrentUserId() ?? 'guest';
-    await database.runAsync('DELETE FROM financial_expenses WHERE id = ? AND userId = ?', [id, userId]);
+    const result = await database.runAsync('DELETE FROM financial_expenses WHERE id = ? AND userId = ?', [id, userId]);
+    if (result?.changes === 0) throw new Error('Expense entry not found or no longer available for this account.');
   },
 };
 
@@ -1471,11 +1495,35 @@ export const financialNoteDb = {
       return;
     }
     const database = await ensureDatabase();
+    const existing = await database.getFirstAsync<{ id: string }>('SELECT id FROM financial_notes WHERE userId = ? LIMIT 1', [userId]);
+    if (existing) {
+      const result = await database.runAsync(
+        'UPDATE financial_notes SET noteLoginInfo = ?, noteTotalDebt = ?, debtAmount = ?, debtDueDate = ?, savingsAmount = ?, emergencyFund = ?, savingsNotes = ?, updatedAt = ? WHERE id = ? AND userId = ?',
+        [note.noteLoginInfo, note.noteTotalDebt, note.debtAmount, note.debtDueDate, note.savingsAmount, note.emergencyFund, note.savingsNotes || '', note.updatedAt, existing.id, userId]
+      );
+      if (result?.changes === 0) throw new Error('Financial note not found or no longer available for this account.');
+      return;
+    }
+    const id = `financial_notes:${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
     await database.runAsync(
-      `INSERT OR REPLACE INTO financial_notes (id, userId, noteLoginInfo, noteTotalDebt, debtAmount, debtDueDate, savingsAmount, emergencyFund, savingsNotes, updatedAt) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [note.id, userId, note.noteLoginInfo, note.noteTotalDebt, note.debtAmount, note.debtDueDate, note.savingsAmount, note.emergencyFund, note.savingsNotes || '', note.updatedAt]
+      'INSERT INTO financial_notes (id, userId, noteLoginInfo, noteTotalDebt, debtAmount, debtDueDate, savingsAmount, emergencyFund, savingsNotes, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, userId, note.noteLoginInfo, note.noteTotalDebt, note.debtAmount, note.debtDueDate, note.savingsAmount, note.emergencyFund, note.savingsNotes || '', note.updatedAt]
     );
+  },
+
+  async delete(): Promise<void> {
+    const userId = getCurrentUserId() ?? 'guest';
+    if (Platform.OS === 'web') {
+      const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+      const key = `financial_notes_${userId}`;
+      const stored = await AsyncStorage.getItem(key);
+      if (!stored) throw new Error('Financial note not found or no longer available for this account.');
+      await AsyncStorage.removeItem(key);
+      return;
+    }
+    const database = await ensureDatabase();
+    const result = await database.runAsync('DELETE FROM financial_notes WHERE userId = ?', [userId]);
+    if (result?.changes === 0) throw new Error('Financial note not found or no longer available for this account.');
   },
 };
 
