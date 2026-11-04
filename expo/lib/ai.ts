@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { getSupabase } from '@/lib/supabase';
 
 /**
  * Client for this app's own AI service (see backend/ai/server.mjs).
@@ -16,10 +17,12 @@ export interface AiMessage {
   content: string | AiMessageContentPart[];
 }
 
-const getAiBaseUrl = () => (process.env.EXPO_PUBLIC_AI_API_URL || '').replace(/\/+$/, '');
+const hasSupabaseConfig = () => Boolean(
+  process.env.EXPO_PUBLIC_SUPABASE_URL && process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
+);
 
 export function isAiConfigured(): boolean {
-  return Boolean(getAiBaseUrl());
+  return hasSupabaseConfig();
 }
 
 export async function generateObject<T extends z.ZodType>({
@@ -29,28 +32,40 @@ export async function generateObject<T extends z.ZodType>({
   messages: AiMessage[];
   schema: T;
 }): Promise<z.infer<T>> {
-  const baseUrl = getAiBaseUrl();
-  if (!baseUrl) {
+  if (!hasSupabaseConfig()) {
     throw new Error('AI service is not configured');
   }
 
-  const response = await fetch(`${baseUrl}/api/ai/object`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages, schema: z.toJSONSchema(schema) }),
+  const { data, error } = await getSupabase().functions.invoke<{ object: unknown }>('ai-object', {
+    body: { messages, schema: z.toJSONSchema(schema) },
   });
 
-  if (!response.ok) {
-    let message = `AI request failed (${response.status})`;
-    try {
-      const body = await response.json();
-      if (body?.error) message = body.error;
-    } catch {
-      // Keep the status-based message when the body is not JSON.
+  if (error) {
+    let message = error.message || 'AI request failed';
+    const context = (error as { context?: unknown }).context;
+    if (context && typeof context === 'object' && 'json' in context && typeof context.json === 'function') {
+      const response = context as {
+        json: () => Promise<unknown>;
+        clone?: () => { json: () => Promise<unknown> };
+        status?: number;
+      };
+      try {
+        const source = response.clone ? response.clone() : response;
+        const body = await source.json();
+        if (body && typeof body === 'object' && 'error' in body && typeof body.error === 'string') {
+          message = body.error;
+        } else if (typeof response.status === 'number') {
+          message = `AI request failed (${response.status})`;
+        }
+      } catch {
+        if (typeof response.status === 'number') message = `AI request failed (${response.status})`;
+      }
     }
     throw new Error(message);
   }
 
-  const payload = await response.json();
-  return schema.parse(payload.object);
+  if (!data || typeof data !== 'object' || !('object' in data)) {
+    throw new Error('AI service returned an invalid response');
+  }
+  return schema.parse(data.object);
 }
