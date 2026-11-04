@@ -1,0 +1,4 @@
+project_id = alchemize
+
+[functions.ai-object]
+verify_jwt = true
