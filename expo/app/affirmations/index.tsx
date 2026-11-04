@@ -1,6 +1,6 @@
 import { invalidateAffirmations } from '../../services/queryInvalidationService';
 import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, FlatList, Text, ScrollView, ImageBackground } from 'react-native';
+import { View, StyleSheet, FlatList, Text, ScrollView, ImageBackground, Alert } from 'react-native';
 import { TouchableOpacity } from '@/components/HapticTouchable';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -58,6 +58,10 @@ export default function AffirmationsScreen() {
     onSuccess: () => {
       void invalidateAffirmations(queryClient);
     },
+    onError: (error) => {
+      console.error('[Affirmations] Delete error:', error);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to delete affirmation.');
+    },
   });
 
   const toggleFavoriteMutation = useMutation({
@@ -96,9 +100,14 @@ export default function AffirmationsScreen() {
             <Edit color="#6366f1" size={20} />
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => deleteMutation.mutate(item.id)}
+            onPress={() => Alert.alert('Delete Affirmation', 'Delete this affirmation? This cannot be undone.', [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Delete', style: 'destructive', onPress: () => deleteMutation.mutate(item.id) },
+            ])}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             style={styles.actionButton}
+            accessibilityRole="button"
+            accessibilityLabel="Delete affirmation"
           >
             <Trash2 color="#ef4444" size={20} />
           </TouchableOpacity>
