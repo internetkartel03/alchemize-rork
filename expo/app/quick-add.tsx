@@ -206,8 +206,7 @@ export default function QuickAddScreen() {
           notes: '',
         });
         break;
-      case 'Transaction':
-        break;
+
       case 'Gratitude':
         createGratitudeMutation.mutate({
           id: Date.now().toString(),
