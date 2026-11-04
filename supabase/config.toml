@@ -1,4 +1,4 @@
-project_id = alchemize
+project_id = "alchemize"
 
 [functions.ai-object]
 verify_jwt = true
