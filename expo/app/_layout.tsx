@@ -14,6 +14,11 @@ import NetworkBanner from "@/components/NetworkBanner";
 import GestureOnboarding from "@/components/GestureOnboarding";
 import { registerForPushNotifications } from "@/lib/notifications";
 import { applyWebPolish } from "@/lib/web-polish";
+import { installWebAlert } from "@/lib/web-alert";
+
+// react-native-web's Alert is a no-op stub; install the browser-backed version
+// before any screen can raise a confirmation or error dialog.
+installWebAlert();
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
