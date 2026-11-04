@@ -1521,9 +1521,19 @@ export const foodLogsDb = {
     );
   },
   
+  async update(log: FoodLog): Promise<void> {
+    const database = await ensureDatabase();
+    const userId = getCurrentUserId() ?? 'guest';
+    await database.runAsync(
+      'UPDATE food_logs SET foodName = ?, servingDescription = ?, calories = ?, proteinGrams = ?, carbGrams = ?, fatGrams = ?, sugarGrams = ?, fiberGrams = ?, mealType = ?, sourceType = ?, loggedAt = ?, isLocked = ?, calendarEventId = ? WHERE id = ? AND userId = ?',
+      [log.foodName, log.servingDescription, log.calories, log.proteinGrams, log.carbGrams, log.fatGrams, log.sugarGrams, log.fiberGrams, log.mealType, log.sourceType, log.loggedAt, log.isLocked ? 1 : 0, log.calendarEventId, log.id, userId]
+    );
+  },
+  
   async delete(id: string): Promise<void> {
     const database = await ensureDatabase();
-    await database.runAsync('DELETE FROM food_logs WHERE id = ?', [id]);
+    const userId = getCurrentUserId() ?? 'guest';
+    await database.runAsync('DELETE FROM food_logs WHERE id = ? AND userId = ?', [id, userId]);
   },
 };
 
@@ -1803,28 +1813,44 @@ export const userNutritionProfileDb = {
 export const waterLogsDb = {
   async getAll(): Promise<WaterLog[]> {
     const database = await ensureDatabase();
-    return database.getAllAsync<WaterLog>('SELECT * FROM water_logs ORDER BY loggedAt DESC');
+    const userId = getCurrentUserId() ?? 'guest';
+    return database.getAllAsync<WaterLog>(
+      'SELECT * FROM water_logs WHERE userId = ? ORDER BY loggedAt DESC',
+      [userId]
+    );
   },
   
   async getByDate(startOfDay: number, endOfDay: number): Promise<WaterLog[]> {
     const database = await ensureDatabase();
+    const userId = getCurrentUserId() ?? 'guest';
     return database.getAllAsync<WaterLog>(
-      'SELECT * FROM water_logs WHERE loggedAt >= ? AND loggedAt < ? ORDER BY loggedAt DESC',
-      [startOfDay, endOfDay]
+      'SELECT * FROM water_logs WHERE userId = ? AND loggedAt >= ? AND loggedAt < ? ORDER BY loggedAt DESC',
+      [userId, startOfDay, endOfDay]
     );
   },
   
   async create(log: WaterLog): Promise<void> {
     const database = await ensureDatabase();
+    const userId = getCurrentUserId() ?? 'guest';
     await database.runAsync(
-      'INSERT INTO water_logs (id, amount, unit, loggedAt) VALUES (?, ?, ?, ?)',
-      [log.id, log.amount, log.unit, log.loggedAt]
+      'INSERT INTO water_logs (id, userId, amount, unit, loggedAt) VALUES (?, ?, ?, ?, ?)',
+      [log.id, userId, log.amount, log.unit, log.loggedAt]
+    );
+  },
+  
+  async update(log: WaterLog): Promise<void> {
+    const database = await ensureDatabase();
+    const userId = getCurrentUserId() ?? 'guest';
+    await database.runAsync(
+      'UPDATE water_logs SET amount = ?, unit = ?, loggedAt = ? WHERE id = ? AND userId = ?',
+      [log.amount, log.unit, log.loggedAt, log.id, userId]
     );
   },
   
   async delete(id: string): Promise<void> {
     const database = await ensureDatabase();
-    await database.runAsync('DELETE FROM water_logs WHERE id = ?', [id]);
+    const userId = getCurrentUserId() ?? 'guest';
+    await database.runAsync('DELETE FROM water_logs WHERE id = ? AND userId = ?', [id, userId]);
   },
 };
 
