@@ -4,6 +4,7 @@ import { View, StyleSheet, Text, ScrollView, TextInput, Alert, ActivityIndicator
 import { TouchableOpacity } from '@/components/HapticTouchable';
 import { useRouter } from 'expo-router';
 import { hapticSelection, hapticSuccess } from '@/lib/haptics';
+import { Edit3, Trash2 } from 'lucide-react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { tasksDb, goalsDb, mealsDb, transactionsDb } from '@/lib/db';
 import { gratitudeSupabase } from '@/services/gratitude.service';
@@ -222,18 +223,19 @@ export default function QuickAddScreen() {
 
   return (
     <View style={styles.container}>
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
+      <ScrollView ref={scrollViewRef} style={styles.scrollView} contentContainerStyle={styles.content}>
         <Text style={styles.title}>Quick Add</Text>
 
         <View style={styles.typeContainer}>
           {QUICK_ADD_OPTIONS.map((type) => (
             <TouchableOpacity
               key={type}
-              style={[styles.typeChip, selectedType === type && styles.typeChipActive]}
+              style={[styles.typeChip, selectedType === type && styles.typeChipActive, editingTransaction && type !== 'Transaction' && styles.typeChipDisabled]}
               onPress={() => {
                 hapticSelection();
                 setSelectedType(type);
               }}
+              disabled={Boolean(editingTransaction) && type !== 'Transaction'}
               activeOpacity={0.7}
             >
               <Text style={[styles.typeText, selectedType === type && styles.typeTextActive]}>
@@ -243,16 +245,62 @@ export default function QuickAddScreen() {
           ))}
         </View>
 
-        <TextInput
-          style={[styles.input, styles.textArea]}
-          value={input}
-          onChangeText={setInput}
-          placeholder={`Enter ${selectedType.toLowerCase()}...`}
-          placeholderTextColor="#666"
-          multiline
-          numberOfLines={4}
-          textAlignVertical="top"
-        />
+        {selectedType === 'Transaction' ? (
+          <View style={styles.transactionForm}>
+            <Text style={styles.fieldLabel}>Amount ($)</Text>
+            <TextInput
+              style={styles.input}
+              value={transactionAmount}
+              onChangeText={setTransactionAmount}
+              placeholder="0.00"
+              placeholderTextColor="#666"
+              keyboardType="decimal-pad"
+            />
+            <Text style={styles.fieldLabel}>Category</Text>
+            <TextInput
+              style={styles.input}
+              value={transactionCategory}
+              onChangeText={setTransactionCategory}
+              placeholder="e.g. Groceries, rent"
+              placeholderTextColor="#666"
+            />
+            <Text style={styles.fieldLabel}>Note (optional)</Text>
+            <TextInput
+              style={[styles.input, styles.textArea]}
+              value={transactionNote}
+              onChangeText={setTransactionNote}
+              placeholder="Add a detail..."
+              placeholderTextColor="#666"
+              multiline
+              textAlignVertical="top"
+            />
+            {editingTransaction && (
+              <TouchableOpacity
+                style={styles.cancelEditButton}
+                onPress={() => {
+                  setEditingTransaction(null);
+                  setTransactionAmount('');
+                  setTransactionCategory('');
+                  setTransactionNote('');
+                }}
+                accessibilityRole="button"
+              >
+                <Text style={styles.cancelEditText}>Cancel editing</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : (
+          <TextInput
+            style={[styles.input, styles.textArea]}
+            value={input}
+            onChangeText={setInput}
+            placeholder={`Enter ${selectedType.toLowerCase()}...`}
+            placeholderTextColor="#666"
+            multiline
+            numberOfLines={4}
+            textAlignVertical="top"
+          />
+        )}
 
         <TouchableOpacity
           style={[styles.addButton, isSaving && styles.addButtonDisabled]}
@@ -263,9 +311,53 @@ export default function QuickAddScreen() {
           {isSaving ? (
             <ActivityIndicator color="#fff" size="small" />
           ) : (
-            <Text style={styles.addButtonText}>Add {selectedType}</Text>
+            <Text style={styles.addButtonText}>{editingTransaction ? 'Save Changes' : `Add ${selectedType}`}</Text>
           )}
         </TouchableOpacity>
+
+        {selectedType === 'Transaction' && (
+          <View style={styles.transactionHistory}>
+            <Text style={styles.historyTitle}>Transaction History</Text>
+            {transactions.length === 0 ? (
+              <Text style={styles.emptyHistory}>No transactions yet.</Text>
+            ) : transactions.map((transaction) => (
+              <View key={transaction.id} style={styles.transactionRow}>
+                <View style={styles.transactionDetails}>
+                  <Text style={styles.transactionCategory}>{transaction.category}</Text>
+                  {transaction.note ? <Text style={styles.transactionNote}>{transaction.note}</Text> : null}
+                  <Text style={styles.transactionDate}>{new Date(transaction.date).toLocaleDateString()}</Text>
+                </View>
+                <Text style={styles.transactionAmount}>${transaction.amount.toFixed(2)}</Text>
+                <TouchableOpacity
+                  style={styles.transactionAction}
+                  onPress={() => {
+                    setEditingTransaction(transaction);
+                    setTransactionAmount(String(transaction.amount));
+                    setTransactionCategory(transaction.category);
+                    setTransactionNote(transaction.note ?? '');
+                    scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Edit ${transaction.category} transaction`}
+                >
+                  <Edit3 size={16} color="#a78bfa" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.transactionAction}
+                  onPress={() => Alert.alert('Delete Transaction', `Delete ${transaction.category} ($${transaction.amount.toFixed(2)})? This cannot be undone.`, [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Delete', style: 'destructive', onPress: () => deleteTransactionMutation.mutate(transaction.id) },
+                  ])}
+                  disabled={deleteTransactionMutation.isPending}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Delete ${transaction.category} transaction`}
+                >
+                  <Trash2 size={16} color="#F87171" />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
       </ScrollView>
     </View>
   );
