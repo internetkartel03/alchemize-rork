@@ -64,7 +64,7 @@ export default function AddHabitScreen() {
     setName(existingHabit.name);
     setHabitType(existingHabit.type);
     setFrequencyType(existingHabit.frequencyType);
-    setSection(existingHabit.section ?? 'custom');
+    setSection(SECTIONS.find((availableSection) => availableSection === existingHabit.section) ?? 'custom');
     setIcon(existingHabit.icon);
     setGoal(String(existingHabit.goal));
     setGoalUnit(existingHabit.goalUnit ?? 'times');
