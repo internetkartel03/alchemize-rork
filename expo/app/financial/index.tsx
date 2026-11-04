@@ -25,6 +25,9 @@ import type { FinancialIncome, FinancialExpense, FinancialNote } from '@/types';
 const NOTEPAD_KEY = '@alchemize_financial_notepad';
 
 type FilterPeriod = 'monthly' | 'quarterly' | 'yearly';
+type FinancialEditRecord =
+  | { type: 'income'; record: FinancialIncome }
+  | { type: 'expense'; record: FinancialExpense };
 
 function getPeriodRange(period: FilterPeriod, refDate: Date): { start: number; end: number; label: string } {
   const year = refDate.getFullYear();
@@ -187,6 +190,7 @@ export default function FinancialTrackerScreen() {
 
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [addModalType, setAddModalType] = useState<'income' | 'expense'>('income');
+  const [editingRecord, setEditingRecord] = useState<FinancialEditRecord | null>(null);
   const [formTitle, setFormTitle] = useState('');
   const [formAmount, setFormAmount] = useState('');
   const [formCategory, setFormCategory] = useState('salary');
@@ -236,6 +240,24 @@ export default function FinancialTrackerScreen() {
     void AsyncStorage.setItem(NOTEPAD_KEY, notepadText);
     Alert.alert('Saved', 'Notepad saved successfully.');
   }, [notepadText]);
+
+  const clearNotepad = useCallback(() => {
+    Alert.alert('Clear Notepad', 'Delete all saved text in this financial notepad?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Clear',
+        style: 'destructive',
+        onPress: () => {
+          if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+          setNotepadText('');
+          void AsyncStorage.removeItem(NOTEPAD_KEY).catch((error) => {
+            console.error('[Financial] Failed to clear notepad:', error);
+            Alert.alert('Error', 'Could not clear the notepad. Please try again.');
+          });
+        },
+      },
+    ]);
+  }, []);
 
   const periodRange = useMemo(() => getPeriodRange(filterPeriod, new Date()), [filterPeriod]);
 
@@ -308,11 +330,32 @@ export default function FinancialTrackerScreen() {
   );
 
   const openAddModal = useCallback((type: 'income' | 'expense') => {
+    setEditingRecord(null);
     setAddModalType(type);
     setFormTitle('');
     setFormAmount('');
     setFormCategory(type === 'income' ? 'salary' : 'bills');
     setFormNote('');
+    setAddModalVisible(true);
+  }, []);
+
+  const openEditIncome = useCallback((record: FinancialIncome) => {
+    setEditingRecord({ type: 'income', record });
+    setAddModalType('income');
+    setFormTitle(record.incomeTitle?.trim() || record.incomeCategory);
+    setFormAmount(String(record.incomeGross));
+    setFormCategory(record.incomeCategory);
+    setFormNote(record.notes ?? '');
+    setAddModalVisible(true);
+  }, []);
+
+  const openEditExpense = useCallback((record: FinancialExpense) => {
+    setEditingRecord({ type: 'expense', record });
+    setAddModalType('expense');
+    setFormTitle(record.expenseName);
+    setFormAmount(String(record.expenseAmount));
+    setFormCategory(record.expenseCategory);
+    setFormNote(record.notes ?? '');
     setAddModalVisible(true);
   }, []);
 
@@ -346,20 +389,80 @@ export default function FinancialTrackerScreen() {
     },
   });
 
+  const updateIncomeMutation = useMutation({
+    mutationFn: async (income: FinancialIncome) => financialIncomeDb.update(income),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['financial-income'] });
+      setAddModalVisible(false);
+      setEditingRecord(null);
+      Alert.alert('Saved', 'Income updated.');
+    },
+    onError: (error) => {
+      console.error('[Financial] Error updating income:', error);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to update income.');
+    },
+  });
+
+  const updateExpenseMutation = useMutation({
+    mutationFn: async (expense: FinancialExpense) => financialExpenseDb.update(expense),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['financial-expenses'] });
+      setAddModalVisible(false);
+      setEditingRecord(null);
+      Alert.alert('Saved', 'Expense updated.');
+    },
+    onError: (error) => {
+      console.error('[Financial] Error updating expense:', error);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to update expense.');
+    },
+  });
+
   const handleAddSubmit = useCallback(() => {
-    const amount = parseFloat(formAmount);
+    const amount = Number(formAmount);
     if (!formTitle.trim()) {
       Alert.alert('Missing', 'Please enter a title.');
       return;
     }
-    if (isNaN(amount) || amount <= 0) {
+    if (!Number.isFinite(amount) || amount <= 0) {
       Alert.alert('Invalid', 'Please enter a valid amount.');
       return;
     }
     const now = Date.now();
+    if (editingRecord?.type === 'income') {
+      const existing = editingRecord.record;
+      const deductions = Number.isFinite(existing.deductions) ? existing.deductions : 0;
+      const taxAmount = existing.taxPercentage > 0
+        ? Number(((amount * existing.taxPercentage) / 100).toFixed(2))
+        : existing.taxAmount;
+      if (amount < taxAmount + deductions) {
+        Alert.alert('Invalid', 'Gross income must cover the saved tax and deductions.');
+        return;
+      }
+      updateIncomeMutation.mutate({
+        ...existing,
+        incomeTitle: formTitle.trim(),
+        incomeGross: amount,
+        incomeNet: Number((amount - taxAmount - deductions).toFixed(2)),
+        taxAmount,
+        incomeCategory: formCategory as FinancialIncome['incomeCategory'],
+        notes: formNote.trim(),
+      });
+      return;
+    }
+    if (editingRecord?.type === 'expense') {
+      updateExpenseMutation.mutate({
+        ...editingRecord.record,
+        expenseName: formTitle.trim(),
+        expenseAmount: amount,
+        expenseCategory: formCategory as FinancialExpense['expenseCategory'],
+        notes: formNote.trim(),
+      });
+      return;
+    }
     if (addModalType === 'income') {
       const income: FinancialIncome = {
         id: `inc_${now}_${Math.random().toString(36).slice(2, 8)}`,
+        incomeTitle: formTitle.trim(),
         incomeGross: amount,
         incomeNet: amount,
         taxAmount: 0,
@@ -383,7 +486,7 @@ export default function FinancialTrackerScreen() {
       };
       addExpenseMutation.mutate(expense);
     }
-  }, [formTitle, formAmount, formCategory, formNote, addModalType, addIncomeMutation, addExpenseMutation]);
+  }, [formTitle, formAmount, formCategory, formNote, addModalType, editingRecord, addIncomeMutation, addExpenseMutation, updateIncomeMutation, updateExpenseMutation]);
 
   const saveNotesMutation = useMutation({
     mutationFn: async (note: FinancialNote) => {
