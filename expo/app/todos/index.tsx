@@ -45,6 +45,7 @@ export default function TodosScreen() {
   const [selectedTaskForNotes, setSelectedTaskForNotes] = useState<Task | null>(null);
   const [notesText, setNotesText] = useState('');
   const [taskTitleText, setTaskTitleText] = useState('');
+  const [taskDetailsSaving, setTaskDetailsSaving] = useState(false);
 
   const { data: allTasks = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['tasks'],
@@ -321,12 +322,13 @@ export default function TodosScreen() {
   };
 
   const saveNotes = async () => {
-    if (!selectedTaskForNotes) return;
+    if (!selectedTaskForNotes || taskDetailsSaving) return;
     const nextTitle = taskTitleText.trim();
     if (!nextTitle) {
       Alert.alert('Title required', 'Enter a title before saving this task.');
       return;
     }
+    setTaskDetailsSaving(true);
 
     const updatedTask: Task = {
       ...selectedTaskForNotes,
@@ -359,6 +361,7 @@ export default function TodosScreen() {
           console.error('[Todos] New reminder rollback failed:', error);
         }
       }
+      setTaskDetailsSaving(false);
       return;
     }
 
@@ -372,6 +375,7 @@ export default function TodosScreen() {
       }
     }
 
+    setTaskDetailsSaving(false);
     setNotesModalVisible(false);
     setSelectedTaskForNotes(null);
     setTaskTitleText('');
@@ -727,8 +731,8 @@ export default function TodosScreen() {
               <TouchableOpacity style={styles.modalCancelButton} onPress={cancelNotes}>
                 <Text style={styles.modalCancelText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.modalSaveButton} onPress={saveNotes}>
-                <Text style={styles.modalSaveText}>Save Changes</Text>
+              <TouchableOpacity style={styles.modalSaveButton} onPress={saveNotes} disabled={taskDetailsSaving || updateMutation.isPending}>
+                <Text style={styles.modalSaveText}>{taskDetailsSaving ? 'Saving...' : 'Save Changes'}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -882,6 +886,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   actionButton: {
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
