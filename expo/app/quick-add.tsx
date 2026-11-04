@@ -405,6 +405,9 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
+  typeChipDisabled: {
+    opacity: 0.35,
+  },
   typeText: {
     fontSize: 14,
     color: 'rgba(255,255,255,0.55)',
@@ -425,6 +428,83 @@ const styles = StyleSheet.create({
   textArea: {
     minHeight: 120,
     paddingTop: 16,
+  },
+  transactionForm: {
+    gap: 10,
+  },
+  fieldLabel: {
+    fontSize: 13,
+    fontWeight: '600' as const,
+    color: 'rgba(255,255,255,0.72)',
+    marginTop: 4,
+  },
+  cancelEditButton: {
+    alignSelf: 'flex-end',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  cancelEditText: {
+    color: '#c4b5fd',
+    fontSize: 13,
+    fontWeight: '600' as const,
+  },
+  transactionHistory: {
+    marginTop: 28,
+    padding: 16,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(167,139,250,0.16)',
+  },
+  historyTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700' as const,
+    marginBottom: 8,
+  },
+  emptyHistory: {
+    color: 'rgba(255,255,255,0.45)',
+    paddingVertical: 18,
+    textAlign: 'center',
+  },
+  transactionRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 8,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
+  transactionDetails: {
+    flex: 1,
+  },
+  transactionCategory: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600' as const,
+  },
+  transactionNote: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 12,
+    marginTop: 3,
+  },
+  transactionDate: {
+    color: 'rgba(255,255,255,0.38)',
+    fontSize: 11,
+    marginTop: 4,
+  },
+  transactionAmount: {
+    color: '#34D399',
+    fontSize: 14,
+    fontWeight: '700' as const,
+  },
+  transactionAction: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    backgroundColor: 'rgba(255,255,255,0.07)',
   },
   addButton: {
     backgroundColor: '#8b5cf6',
