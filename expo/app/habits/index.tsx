@@ -3,14 +3,14 @@ import { View, StyleSheet, ScrollView, Text, ImageBackground, Alert } from 'reac
 import { TouchableOpacity } from '@/components/HapticTouchable';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Settings, ChevronDown, ChevronUp, Timer, Hash, CheckSquare, Play, Pause, Square } from 'lucide-react-native';
+import { Plus, Settings, ChevronDown, ChevronUp, Timer, Hash, CheckSquare, Play, Pause, Square, Pencil, Trash2 } from 'lucide-react-native';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { habitsDb, habitCompletionsDb } from '@/lib/db';
 import type { Habit } from '@/types';
 import { ASSETS } from '@/constants/assets';
-import { formatAlarmTime } from '@/lib/habitAlarms';
+import { cancelHabitAlarm, formatAlarmTime } from '@/lib/habitAlarms';
 import LoadingState from '@/components/LoadingState';
 import ErrorState from '@/components/ErrorState';
 
@@ -87,6 +87,44 @@ export default function HabitsScreen() {
       Alert.alert('Error', 'Failed to log completion. Please try again.');
     },
   });
+
+  const deleteHabitMutation = useMutation({
+    mutationFn: async (habit: Habit) => {
+      await habitsDb.delete(habit.id);
+      await cancelHabitAlarm(habit.reminderNotificationId);
+      return habit.id;
+    },
+    onSuccess: (habitId) => {
+      setTimerStates((prev) => {
+        const next = { ...prev };
+        if (next[habitId]?.interval) clearInterval(next[habitId].interval);
+        delete next[habitId];
+        return next;
+      });
+      setCounterValues((prev) => {
+        const next = { ...prev };
+        delete next[habitId];
+        return next;
+      });
+      void queryClient.invalidateQueries({ queryKey: ['habits'] });
+      void queryClient.invalidateQueries({ queryKey: ['habit-completions'] });
+    },
+    onError: (error: any) => {
+      console.error('[Habits] Delete failed:', error);
+      Alert.alert('Delete failed', error?.message || 'Could not delete this habit. Please try again.');
+    },
+  });
+
+  const confirmDeleteHabit = (habit: Habit) => {
+    Alert.alert(
+      'Delete habit?',
+      `Delete "${habit.name}" and its completion history? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => deleteHabitMutation.mutate(habit) },
+      ]
+    );
+  };
 
   const getWeekDates = () => {
     const now = new Date();
@@ -267,6 +305,27 @@ export default function HabitsScreen() {
                 <Text style={styles.habitAlarmText}>🔔 {formatAlarmTime(habit.reminderTime)}</Text>
               ) : null}
             </View>
+          </View>
+          <View style={styles.habitActions}>
+            <TouchableOpacity
+              style={styles.habitActionButton}
+              onPress={() => router.push(`/habits/add?id=${encodeURIComponent(habit.id)}` as any)}
+              accessibilityRole="button"
+              accessibilityLabel={`Edit ${habit.name}`}
+              accessibilityHint="Opens this habit for editing."
+            >
+              <Pencil color="#C9A7FF" size={18} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.habitActionButton}
+              onPress={() => confirmDeleteHabit(habit)}
+              disabled={deleteHabitMutation.isPending}
+              accessibilityRole="button"
+              accessibilityLabel={`Delete ${habit.name}`}
+              accessibilityHint="Asks for confirmation before deleting this habit and its history."
+            >
+              <Trash2 color="#ff8b8b" size={18} />
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -607,6 +666,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
     gap: 12,
+  },
+  habitActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginLeft: 8,
+  },
+  habitActionButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(201, 167, 255, 0.3)',
+    backgroundColor: 'rgba(99, 102, 241, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   habitIcon: {
     width: 48,
