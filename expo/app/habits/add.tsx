@@ -1,13 +1,13 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, TextInput, Text, ScrollView, Alert, ImageBackground, KeyboardAvoidingView, Platform } from 'react-native';
 import { TouchableOpacity } from '@/components/HapticTouchable';
-import { useRouter } from 'expo-router';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { X, Timer, CheckSquare, Hash, Bell } from 'lucide-react-native';
 import { habitsDb } from '@/lib/db';
-import { isAlarmSupported, isValidAlarmTime, scheduleHabitAlarm } from '@/lib/habitAlarms';
+import { cancelHabitAlarm, isAlarmSupported, isValidAlarmTime, scheduleHabitAlarm } from '@/lib/habitAlarms';
 import type { Habit, HabitType } from '@/types';
 import { ASSETS } from '@/constants/assets';
 
@@ -32,6 +32,22 @@ const TEMPLATES = [
 export default function AddHabitScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { id: routeId } = useLocalSearchParams<{ id?: string }>();
+  const habitId = typeof routeId === 'string' ? routeId : undefined;
+  const {
+    data: existingHabit,
+    isLoading: isLoadingExistingHabit,
+    isError: isExistingHabitError,
+  } = useQuery({
+    queryKey: ['habits', 'edit', habitId],
+    queryFn: async () => {
+      const savedHabits = await habitsDb.getAll();
+      const habit = savedHabits.find((item) => item.id === habitId);
+      if (!habit) throw new Error('Habit not found or no longer available.');
+      return habit;
+    },
+    enabled: Boolean(habitId),
+  });
 
   const [name, setName] = useState('');
   const [habitType, setHabitType] = useState<HabitType>('checkbox');
@@ -43,22 +59,52 @@ export default function AddHabitScreen() {
   const [alarmEnabled, setAlarmEnabled] = useState(false);
   const [alarmTime, setAlarmTime] = useState('');
 
-  const createMutation = useMutation({
-    mutationFn: async (habit: Habit) => {
-      await habitsDb.create(habit);
+  useEffect(() => {
+    if (!existingHabit) return;
+    setName(existingHabit.name);
+    setHabitType(existingHabit.type);
+    setFrequencyType(existingHabit.frequencyType);
+    setSection(existingHabit.section);
+    setIcon(existingHabit.icon);
+    setGoal(String(existingHabit.goal));
+    setGoalUnit(existingHabit.goalUnit ?? 'times');
+    setAlarmEnabled(existingHabit.reminderEnabled);
+    setAlarmTime(existingHabit.reminderTime ?? '');
+  }, [existingHabit]);
 
-      // Schedule the daily alarm and store its id so it can be replaced or cancelled.
-      const notificationId = await scheduleHabitAlarm(habit);
+  useEffect(() => {
+    if (!habitId || !isExistingHabitError) return;
+    Alert.alert('Habit unavailable', 'This habit is no longer available for this account.', [
+      { text: 'OK', onPress: () => router.back() },
+    ]);
+  }, [habitId, isExistingHabitError, router]);
+
+  const saveMutation = useMutation({
+    mutationFn: async (habit: Habit) => {
+      if (existingHabit) {
+        await habitsDb.update({ ...habit, reminderNotificationId: null });
+        await cancelHabitAlarm(existingHabit.reminderNotificationId);
+      } else {
+        await habitsDb.create(habit);
+      }
+
+      const notificationId = await scheduleHabitAlarm({ ...habit, reminderNotificationId: null });
       if (notificationId) {
-        await habitsDb.update({ ...habit, reminderNotificationId: notificationId });
+        try {
+          await habitsDb.update({ ...habit, reminderNotificationId: notificationId });
+        } catch (error) {
+          await cancelHabitAlarm(notificationId);
+          throw error;
+        }
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['habits'] });
+      void queryClient.invalidateQueries({ queryKey: ['habits'] });
+      void queryClient.invalidateQueries({ queryKey: ['habit-completions'] });
       router.back();
     },
     onError: (error: any) => {
-      console.error('[AddHabit] Save failed:', error);
+      console.error('[HabitForm] Save failed:', error);
       Alert.alert('Save failed', error?.message || 'Could not save habit. Please try again.');
     },
   });
@@ -82,28 +128,28 @@ export default function AddHabitScreen() {
       return;
     }
 
-    const goalNum = parseInt(goal) || 1;
+    const goalNum = parseInt(goal, 10) || 1;
 
     const habit: Habit = {
-      id: Date.now().toString(),
+      id: existingHabit?.id ?? Date.now().toString(),
       name: name.trim(),
       icon,
       goal: goalNum,
       goalUnit: habitType === 'checkbox' ? 'times' : goalUnit,
       type: habitType,
       frequencyType,
-      customDays: [],
-      currentProgress: 0,
-      color: '#6366f1',
+      customDays: existingHabit?.customDays ?? [],
+      currentProgress: existingHabit?.currentProgress ?? 0,
+      color: existingHabit?.color ?? '#6366f1',
       section,
-      lastCompletedDate: '',
-      createdAt: Date.now(),
+      lastCompletedDate: existingHabit?.lastCompletedDate ?? '',
+      createdAt: existingHabit?.createdAt ?? Date.now(),
       reminderEnabled: alarmEnabled,
       reminderTime: alarmEnabled ? alarmTime.trim() : null,
-      reminderNotificationId: null,
+      reminderNotificationId: existingHabit?.reminderNotificationId ?? null,
     };
 
-    createMutation.mutate(habit);
+    saveMutation.mutate(habit);
   };
 
   return (
@@ -113,7 +159,7 @@ export default function AddHabitScreen() {
         style={styles.overlay}
       >
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>New Habit</Text>
+          <Text style={styles.headerTitle}>{habitId ? 'Edit Habit' : 'New Habit'}</Text>
           <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
             <X color="#C9A7FF" size={24} />
           </TouchableOpacity>
@@ -121,7 +167,9 @@ export default function AddHabitScreen() {
 
         <KeyboardAvoidingView style={styles.kbAvoiding} behavior="padding" keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-          {name === '' && (
+          {habitId && isLoadingExistingHabit ? <Text style={styles.label}>Loading habit...</Text> : null}
+          {habitId && isExistingHabitError ? <Text style={styles.label}>Unable to load this habit.</Text> : null}
+          {!habitId && name === '' && (
             <View style={styles.templatesSection}>
               <Text style={styles.templatesTitle}>Quick Start Templates</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.templatesScroll}>
@@ -284,14 +332,14 @@ export default function AddHabitScreen() {
           <TouchableOpacity
             style={styles.saveButton}
             onPress={handleSave}
-            disabled={createMutation.isPending}
+            disabled={saveMutation.isPending || (Boolean(habitId) && (isLoadingExistingHabit || !existingHabit))}
           >
             <LinearGradient
               colors={['#6366f1', '#8b5cf6']}
               style={styles.saveButtonGradient}
             >
               <Text style={styles.saveButtonText}>
-                {createMutation.isPending ? 'Creating...' : 'Create Habit'}
+                {saveMutation.isPending ? (habitId ? 'Saving...' : 'Creating...') : (habitId ? 'Save Changes' : 'Create Habit')}
               </Text>
             </LinearGradient>
           </TouchableOpacity>
