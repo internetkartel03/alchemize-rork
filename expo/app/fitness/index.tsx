@@ -151,6 +151,80 @@ export default function FitnessHubScreen() {
     );
   };
 
+  const openWorkoutEditor = (session: WorkoutSession) => {
+    if (session.source !== 'manual') return;
+    setDurationDraft(String(session.durationMinutes));
+    setCaloriesDraft(session.caloriesEstimate == null ? '' : String(session.caloriesEstimate));
+    setEditingWorkout(session);
+  };
+
+  const handleSaveWorkout = async () => {
+    if (!editingWorkout || savingWorkout || editingWorkout.source !== 'manual') return;
+    const durationMinutes = Number.parseInt(durationDraft, 10);
+    const caloriesText = caloriesDraft.trim();
+    const caloriesEstimate = caloriesText.length === 0 ? null : Number.parseInt(caloriesText, 10);
+    if (!Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 1440) {
+      Alert.alert('Check workout duration', 'Enter a duration from 1 to 1,440 minutes.');
+      return;
+    }
+    if (caloriesText.length > 0 && (!Number.isInteger(caloriesEstimate) || (caloriesEstimate ?? -1) < 0)) {
+      Alert.alert('Check calorie estimate', 'Enter a non-negative whole number, or leave it blank.');
+      return;
+    }
+
+    const updatedSession: WorkoutSession = {
+      ...editingWorkout,
+      durationMinutes,
+      endedAt: editingWorkout.endedAt === null ? null : editingWorkout.startedAt + durationMinutes * 60_000,
+      caloriesEstimate,
+    };
+    setSavingWorkout(true);
+    let totalsWarning = false;
+    try {
+      await workoutSessionsDb.update(updatedSession);
+      if (editingWorkout.completed) {
+        try {
+          const date = new Date(editingWorkout.startedAt).toISOString().slice(0, 10);
+          const metric = await normalizedMetricsDb.getByDate(date);
+          if (metric?.source === 'workout') {
+            const minutesDelta = durationMinutes - editingWorkout.durationMinutes;
+            const caloriesDelta = (caloriesEstimate ?? 0) - (editingWorkout.caloriesEstimate ?? 0);
+            if (metric.activeMinutes + minutesDelta >= 0 && metric.caloriesActive + caloriesDelta >= 0) {
+              if (minutesDelta !== 0 || caloriesDelta !== 0) {
+                await normalizedMetricsDb.upsert({
+                  id: metric.id,
+                  date,
+                  activeMinutes: minutesDelta,
+                  caloriesActive: caloriesDelta,
+                  steps: 0,
+                  source: 'workout',
+                  deviceType: metric.deviceType,
+                });
+              }
+            } else {
+              totalsWarning = true;
+            }
+          } else if (metric) {
+            totalsWarning = true;
+          }
+        } catch (error) {
+          console.warn('[Fitness] Workout saved but daily totals were not reconciled:', error);
+          totalsWarning = true;
+        }
+      }
+      await refreshWorkoutQueries();
+      setEditingWorkout(null);
+      if (totalsWarning) {
+        Alert.alert('Workout saved', 'The workout was updated, but the daily activity total was left unchanged because it is HealthKit-backed or could not be reconciled safely.');
+      }
+    } catch (error) {
+      console.error('[Fitness] Failed to update workout:', error);
+      Alert.alert('Could not save workout', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setSavingWorkout(false);
+    }
+  };
+
   const handleStartWorkout = () => {
     if (!topWorkout) return;
     router.push(`/fitness/workout?templateId=${topWorkout.id}` as any);
