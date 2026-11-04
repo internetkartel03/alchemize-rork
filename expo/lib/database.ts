@@ -1259,11 +1259,17 @@ export const goalChecklistDb = {
 export const goalCompletionsDb = {
   async getByGoalId(goalId: string): Promise<GoalCompletion[]> {
     const database = await ensureDatabase();
+    const userId = getCurrentUserId() ?? 'guest';
+    const goal = await database.getFirstAsync<{ id: string }>('SELECT id FROM goals WHERE id = ? AND userId = ?', [goalId, userId]);
+    if (!goal) return [];
     return database.getAllAsync<GoalCompletion>('SELECT * FROM goal_completions WHERE goalId = ? ORDER BY completionDate DESC', [goalId]);
   },
   
   async getByDateRange(goalId: string, startDate: number, endDate: number): Promise<GoalCompletion[]> {
     const database = await ensureDatabase();
+    const userId = getCurrentUserId() ?? 'guest';
+    const goal = await database.getFirstAsync<{ id: string }>('SELECT id FROM goals WHERE id = ? AND userId = ?', [goalId, userId]);
+    if (!goal) return [];
     return database.getAllAsync<GoalCompletion>(
       'SELECT * FROM goal_completions WHERE goalId = ? AND completionDate >= ? AND completionDate <= ? ORDER BY completionDate DESC',
       [goalId, startDate, endDate]
@@ -1272,6 +1278,9 @@ export const goalCompletionsDb = {
   
   async create(completion: GoalCompletion): Promise<void> {
     const database = await ensureDatabase();
+    const userId = getCurrentUserId() ?? 'guest';
+    const goal = await database.getFirstAsync<{ id: string }>('SELECT id FROM goals WHERE id = ? AND userId = ?', [completion.goalId, userId]);
+    if (!goal) throw new Error('Goal not found or no longer available for this account.');
     await database.runAsync(
       'INSERT INTO goal_completions (id, goalId, completionDate, notes, completedAt) VALUES (?, ?, ?, ?, ?)',
       [completion.id, completion.goalId, completion.completionDate, completion.notes, completion.completedAt]
@@ -1280,7 +1289,13 @@ export const goalCompletionsDb = {
   
   async delete(id: string): Promise<void> {
     const database = await ensureDatabase();
-    await database.runAsync('DELETE FROM goal_completions WHERE id = ?', [id]);
+    const userId = getCurrentUserId() ?? 'guest';
+    const existing = await database.getFirstAsync<{ goalId: string }>('SELECT goalId FROM goal_completions WHERE id = ?', [id]);
+    if (!existing) throw new Error('Goal completion not found or no longer available for this account.');
+    const goal = await database.getFirstAsync<{ id: string }>('SELECT id FROM goals WHERE id = ? AND userId = ?', [existing.goalId, userId]);
+    if (!goal) throw new Error('Goal completion not found or no longer available for this account.');
+    const result = await database.runAsync('DELETE FROM goal_completions WHERE id = ? AND goalId = ?', [id, existing.goalId]);
+    if (result?.changes === 0) throw new Error('Goal completion not found or no longer available for this account.');
   },
 };
 
