@@ -1807,7 +1807,8 @@ export const affirmationsDb = {
   async delete(id: string): Promise<void> {
     const database = await ensureDatabase();
     const userId = getCurrentUserId() ?? 'guest';
-    await database.runAsync('DELETE FROM affirmations WHERE id = ? AND userId = ?', [id, userId]);
+    const result = await database.runAsync('DELETE FROM affirmations WHERE id = ? AND userId = ?', [id, userId]);
+    if (result?.changes === 0) throw new Error('Affirmation not found or no longer available for this account.');
   },
 };
 
