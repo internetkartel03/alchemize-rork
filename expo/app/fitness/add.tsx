@@ -90,12 +90,14 @@ export default function AddWorkoutScreen() {
       const dateStr = new Date().toISOString().split('T')[0];
       const existingMetric = await normalizedMetricsDb.getByDate(dateStr);
       if (existingMetric) {
+        // upsert() adds to the stored totals, so pass this workout's own figures
+        // as the delta — pre-adding the existing values would double them.
         await normalizedMetricsDb.upsert({
           id: existingMetric.id,
           date: dateStr,
-          activeMinutes: (existingMetric.activeMinutes || 0) + durationNum,
-          caloriesActive: (existingMetric.caloriesActive || 0) + calories,
-          steps: existingMetric.steps || 0,
+          activeMinutes: durationNum,
+          caloriesActive: calories,
+          steps: 0,
           source: 'workout',
           deviceType: 'none',
         });
