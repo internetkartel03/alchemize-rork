@@ -1275,11 +1275,31 @@ const styles = StyleSheet.create({
   dayDetailLeft: {
     flex: 1,
   },
+  dayDetailActions: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 8,
+    marginLeft: 8,
+  },
+  dayDetailAction: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
   dayDetailItemTitle: {
     fontSize: 14,
     fontWeight: '600' as const,
     color: '#fff',
     textTransform: 'capitalize',
+  },
+  dayDetailItemCategory: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.45)',
+    textTransform: 'capitalize' as const,
+    marginTop: 2,
   },
   dayDetailItemAmount: {
     fontSize: 15,
@@ -1325,6 +1345,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 14,
+  },
+  noteHeaderActions: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 8,
   },
   sectionTitle: {
     fontSize: 17,
@@ -1402,6 +1427,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600' as const,
     color: '#fbbf24',
+  },
+  clearNoteBtn: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 4,
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  clearNoteBtnText: {
+    fontSize: 12,
+    fontWeight: '600' as const,
+    color: '#F87171',
   },
   editBtn: {
     flexDirection: 'row',
