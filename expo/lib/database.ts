@@ -1922,7 +1922,8 @@ export const fitnessGoalsDb = {
       [metric, userId]
     );
     if (existing) {
-      await database.runAsync('UPDATE fitness_goals SET dailyTarget = ? WHERE id = ?', [dailyTarget, existing.id]);
+      const result = await database.runAsync('UPDATE fitness_goals SET dailyTarget = ? WHERE id = ? AND userId = ?', [dailyTarget, existing.id, userId]);
+      if (result?.changes === 0) throw new Error('Fitness goal was not found for the current user');
       return;
     }
     await database.runAsync(
@@ -1942,47 +1943,57 @@ export const fitnessGoalsDb = {
   
   async update(goal: FitnessGoal): Promise<void> {
     const database = await ensureDatabase();
-    await database.runAsync(
-      'UPDATE fitness_goals SET metric = ?, dailyTarget = ? WHERE id = ?',
-      [goal.metric, goal.dailyTarget, goal.id]
+    const userId = getCurrentUserId() ?? 'guest';
+    const result = await database.runAsync(
+      'UPDATE fitness_goals SET metric = ?, dailyTarget = ? WHERE id = ? AND userId = ?',
+      [goal.metric, goal.dailyTarget, goal.id, userId]
     );
+    if (result?.changes === 0) throw new Error('Fitness goal was not found for the current user');
   },
   
   async delete(id: string): Promise<void> {
     const database = await ensureDatabase();
-    await database.runAsync('DELETE FROM fitness_goals WHERE id = ?', [id]);
+    const userId = getCurrentUserId() ?? 'guest';
+    const result = await database.runAsync('DELETE FROM fitness_goals WHERE id = ? AND userId = ?', [id, userId]);
+    if (result?.changes === 0) throw new Error('Fitness goal was not found for the current user');
   },
 };
 
 export const workoutTemplatesDb = {
   async getAll(): Promise<WorkoutTemplate[]> {
     const database = await ensureDatabase();
-    return database.getAllAsync<WorkoutTemplate>('SELECT * FROM workout_templates');
+    const userId = getCurrentUserId() ?? 'guest';
+    return database.getAllAsync<WorkoutTemplate>('SELECT * FROM workout_templates WHERE userId = ?', [userId]);
   },
   
   async getById(id: string): Promise<WorkoutTemplate | null> {
     const database = await ensureDatabase();
-    return database.getFirstAsync<WorkoutTemplate>('SELECT * FROM workout_templates WHERE id = ?', [id]);
+    const userId = getCurrentUserId() ?? 'guest';
+    return database.getFirstAsync<WorkoutTemplate>('SELECT * FROM workout_templates WHERE id = ? AND userId = ?', [id, userId]);
   },
   
   async create(template: WorkoutTemplate): Promise<void> {
     const database = await ensureDatabase();
+    const userId = getCurrentUserId() ?? 'guest';
     await database.runAsync(
-      'INSERT INTO workout_templates (id, title, category, durationMinutes, intensity, equipment, description) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [template.id, template.title, template.category, template.durationMinutes, template.intensity, template.equipment, template.description]
+      'INSERT INTO workout_templates (id, userId, title, category, durationMinutes, intensity, equipment, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [template.id, userId, template.title, template.category, template.durationMinutes, template.intensity, template.equipment, template.description]
     );
   },
   
   async delete(id: string): Promise<void> {
     const database = await ensureDatabase();
-    await database.runAsync('DELETE FROM workout_templates WHERE id = ?', [id]);
+    const userId = getCurrentUserId() ?? 'guest';
+    const result = await database.runAsync('DELETE FROM workout_templates WHERE id = ? AND userId = ?', [id, userId]);
+    if (result?.changes === 0) throw new Error('Workout template was not found for the current user');
   },
 };
 
 export const workoutSessionsDb = {
   async getAll(): Promise<WorkoutSession[]> {
     const database = await ensureDatabase();
-    const rows = await database.getAllAsync<any>('SELECT * FROM workout_sessions ORDER BY startedAt DESC');
+    const userId = getCurrentUserId() ?? 'guest';
+    const rows = await database.getAllAsync<any>('SELECT * FROM workout_sessions WHERE userId = ? ORDER BY startedAt DESC', [userId]);
     return rows.map(row => ({
       ...row,
       completed: Boolean(row.completed),
@@ -1991,7 +2002,8 @@ export const workoutSessionsDb = {
   
   async getById(id: string): Promise<WorkoutSession | null> {
     const database = await ensureDatabase();
-    const row = await database.getFirstAsync<any>('SELECT * FROM workout_sessions WHERE id = ?', [id]);
+    const userId = getCurrentUserId() ?? 'guest';
+    const row = await database.getFirstAsync<any>('SELECT * FROM workout_sessions WHERE id = ? AND userId = ?', [id, userId]);
     if (!row) return null;
     return {
       ...row,
@@ -2001,61 +2013,73 @@ export const workoutSessionsDb = {
   
   async create(session: WorkoutSession): Promise<void> {
     const database = await ensureDatabase();
+    const userId = getCurrentUserId() ?? 'guest';
     await database.runAsync(
-      'INSERT INTO workout_sessions (id, templateId, startedAt, endedAt, durationMinutes, completed, caloriesEstimate, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [session.id, session.templateId, session.startedAt, session.endedAt, session.durationMinutes, session.completed ? 1 : 0, session.caloriesEstimate, session.source]
+      'INSERT INTO workout_sessions (id, userId, templateId, startedAt, endedAt, durationMinutes, completed, caloriesEstimate, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [session.id, userId, session.templateId, session.startedAt, session.endedAt, session.durationMinutes, session.completed ? 1 : 0, session.caloriesEstimate, session.source]
     );
   },
   
   async update(session: WorkoutSession): Promise<void> {
     const database = await ensureDatabase();
-    await database.runAsync(
-      'UPDATE workout_sessions SET endedAt = ?, durationMinutes = ?, completed = ?, caloriesEstimate = ? WHERE id = ?',
-      [session.endedAt, session.durationMinutes, session.completed ? 1 : 0, session.caloriesEstimate, session.id]
+    const userId = getCurrentUserId() ?? 'guest';
+    const result = await database.runAsync(
+      'UPDATE workout_sessions SET endedAt = ?, durationMinutes = ?, completed = ?, caloriesEstimate = ? WHERE id = ? AND userId = ?',
+      [session.endedAt, session.durationMinutes, session.completed ? 1 : 0, session.caloriesEstimate, session.id, userId]
     );
+    if (result?.changes === 0) throw new Error('Workout was not found for the current user');
   },
   
   async delete(id: string): Promise<void> {
     const database = await ensureDatabase();
-    await database.runAsync('DELETE FROM workout_sessions WHERE id = ?', [id]);
+    const userId = getCurrentUserId() ?? 'guest';
+    const result = await database.runAsync('DELETE FROM workout_sessions WHERE id = ? AND userId = ?', [id, userId]);
+    if (result?.changes === 0) throw new Error('Workout was not found for the current user');
   },
 };
 
 export const normalizedMetricsDb = {
   async getAll(): Promise<NormalizedMetric[]> {
     const database = await ensureDatabase();
-    return database.getAllAsync<NormalizedMetric>('SELECT * FROM normalized_metrics ORDER BY date DESC');
+    const userId = getCurrentUserId() ?? 'guest';
+    return database.getAllAsync<NormalizedMetric>('SELECT * FROM normalized_metrics WHERE userId = ? ORDER BY date DESC', [userId]);
   },
   
   async getByDate(date: string): Promise<NormalizedMetric | null> {
     const database = await ensureDatabase();
-    return database.getFirstAsync<NormalizedMetric>('SELECT * FROM normalized_metrics WHERE date = ?', [date]);
+    const userId = getCurrentUserId() ?? 'guest';
+    return database.getFirstAsync<NormalizedMetric>('SELECT * FROM normalized_metrics WHERE date = ? AND userId = ?', [date, userId]);
   },
   
   async create(metric: NormalizedMetric): Promise<void> {
     const database = await ensureDatabase();
+    const userId = getCurrentUserId() ?? 'guest';
     await database.runAsync(
-      'INSERT INTO normalized_metrics (id, date, activeMinutes, caloriesActive, steps, source, deviceType) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [metric.id, metric.date, metric.activeMinutes, metric.caloriesActive, metric.steps, metric.source, metric.deviceType]
+      'INSERT INTO normalized_metrics (id, userId, date, activeMinutes, caloriesActive, steps, source, deviceType) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [metric.id, userId, metric.date, metric.activeMinutes, metric.caloriesActive, metric.steps, metric.source, metric.deviceType]
     );
   },
   
   async update(metric: NormalizedMetric): Promise<void> {
     const database = await ensureDatabase();
-    await database.runAsync(
-      'UPDATE normalized_metrics SET activeMinutes = ?, caloriesActive = ?, steps = ? WHERE date = ?',
-      [metric.activeMinutes, metric.caloriesActive, metric.steps, metric.date]
+    const userId = getCurrentUserId() ?? 'guest';
+    const result = await database.runAsync(
+      'UPDATE normalized_metrics SET activeMinutes = ?, caloriesActive = ?, steps = ? WHERE date = ? AND userId = ?',
+      [metric.activeMinutes, metric.caloriesActive, metric.steps, metric.date, userId]
     );
+    if (result?.changes === 0) throw new Error('Daily metrics were not found for the current user');
   },
   
   async upsert(metric: NormalizedMetric): Promise<void> {
     const database = await ensureDatabase();
+    const userId = getCurrentUserId() ?? 'guest';
     const existing = await this.getByDate(metric.date);
     if (existing) {
-      await database.runAsync(
-        'UPDATE normalized_metrics SET activeMinutes = activeMinutes + ?, caloriesActive = caloriesActive + ?, steps = steps + ? WHERE date = ?',
-        [metric.activeMinutes, metric.caloriesActive, metric.steps, metric.date]
+      const result = await database.runAsync(
+        'UPDATE normalized_metrics SET activeMinutes = activeMinutes + ?, caloriesActive = caloriesActive + ?, steps = steps + ? WHERE date = ? AND userId = ?',
+        [metric.activeMinutes, metric.caloriesActive, metric.steps, metric.date, userId]
       );
+      if (result?.changes === 0) throw new Error('Daily metrics were not found for the current user');
     } else {
       await this.create(metric);
     }
