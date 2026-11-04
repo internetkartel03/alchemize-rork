@@ -299,7 +299,7 @@ export default function FitnessHubScreen() {
                 }
                 await refreshWorkoutQueries(Boolean(orphanTemplate));
                 if (editingWorkout?.id === session.id) setEditingWorkout(null);
-                if (warnings.length > 0) Alert.alert('Workout deleted with a note', warnings.join('\n\n'));
+                if (warnings.length > 0) Alert.alert('Workout deleted with a note', warnings.join(' | '));
               } catch (error) {
                 console.error('[Fitness] Failed to delete workout:', error);
                 Alert.alert('Could not delete workout', error instanceof Error ? error.message : 'Please try again.');
