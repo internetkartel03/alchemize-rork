@@ -1,4 +1,5 @@
-import { withSupabase } from 'npm:@supabase/server@^1';
+import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
+import { withSupabase } from 'jsr:@supabase/server@^1';
 import { createAiObjectHandler } from './handler.mjs';
 
 const handler = createAiObjectHandler({
