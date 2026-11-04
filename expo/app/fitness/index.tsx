@@ -361,8 +361,59 @@ export default function FitnessHubScreen() {
           </View>
 
           <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Workout History</Text>
+            <Text style={styles.historyNote}>Manual workouts can be edited or deleted. HealthKit workouts remain synced and read-only.</Text>
+            {manualSessions.length === 0 ? (
+              <Text style={styles.historyEmpty}>No manual workouts yet. Log one to see it here.</Text>
+            ) : (
+              manualSessions.map(session => {
+                const title = templates.find(template => template.id === session.templateId)?.title ?? 'Manual workout';
+                const caloriesText = session.caloriesEstimate == null ? 'No calorie estimate' : `${session.caloriesEstimate} kcal`;
+                return (
+                  <View key={session.id} style={styles.workoutHistoryCard}>
+                    <View style={styles.workoutHistoryMain}>
+                      <View style={styles.workoutHistoryIcon}>
+                        <Dumbbell size={18} color="#10b981" />
+                      </View>
+                      <View style={styles.workoutHistoryText}>
+                        <Text style={styles.workoutHistoryTitle} numberOfLines={1}>{title}</Text>
+                        <Text style={styles.workoutHistoryMeta} numberOfLines={2}>
+                          {new Date(session.startedAt).toLocaleDateString()} | {session.durationMinutes} min | {caloriesText}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.workoutHistoryActions}>
+                      <TouchableOpacity
+                        style={styles.historyActionButton}
+                        onPress={() => openWorkoutEditor(session)}
+                        disabled={savingWorkout}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Edit ${title}`}
+                        testID={`edit-workout-${session.id}`}
+                      >
+                        <Pencil size={16} color="#10b981" />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.historyActionButton, styles.historyActionDelete]}
+                        onPress={() => handleDeleteWorkout(session)}
+                        disabled={savingWorkout}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Delete ${title}`}
+                        testID={`delete-workout-${session.id}`}
+                      >
+                        <Trash2 size={16} color="#ef4444" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })
+            )}
+          </View>
+
+          <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Today&apos;s Progress</Text>
+              <TouchableOpacity style={styles.editGoalsButton} onPress={() => setGoalsModalVisible(true)} testID="edit-goals-button">
               <TouchableOpacity style={styles.editGoalsButton} onPress={() => setGoalsModalVisible(true)} testID="edit-goals-button">
                 <Pencil size={12} color="#10b981" />
                 <Text style={styles.editGoalsText}>Edit Goals</Text>
