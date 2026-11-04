@@ -497,6 +497,27 @@ export default function FinancialTrackerScreen() {
       setEditingNotes(false);
       Alert.alert('Saved', 'Financial notes saved.');
     },
+    onError: (error) => {
+      console.error('[Financial] Error saving notes:', error);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to save financial notes.');
+    },
+  });
+
+  const deleteFinancialNotesMutation = useMutation({
+    mutationFn: () => financialNoteDb.delete(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['financial-notes'] });
+      setLoginInfo('');
+      setDebtNotes('');
+      setDebtAmount('0');
+      setShowLogins(false);
+      setEditingNotes(false);
+      Alert.alert('Deleted', 'Financial notes deleted.');
+    },
+    onError: (error) => {
+      console.error('[Financial] Error deleting notes:', error);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to delete financial notes.');
+    },
   });
 
   const handleSaveFinancialNotes = useCallback(() => {
@@ -516,20 +537,24 @@ export default function FinancialTrackerScreen() {
   }, [loginInfo, debtNotes, debtAmount, notesData, saveNotesMutation]);
 
   const deleteIncomeMutation = useMutation({
-    mutationFn: async (id: string) => {
-      return financialIncomeDb.delete(id);
-    },
+    mutationFn: async (id: string) => financialIncomeDb.delete(id),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['financial-income'] });
+    },
+    onError: (error) => {
+      console.error('[Financial] Error deleting income:', error);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to delete income.');
     },
   });
 
   const deleteExpenseMutation = useMutation({
-    mutationFn: async (id: string) => {
-      return financialExpenseDb.delete(id);
-    },
+    mutationFn: async (id: string) => financialExpenseDb.delete(id),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['financial-expenses'] });
+    },
+    onError: (error) => {
+      console.error('[Financial] Error deleting expense:', error);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to delete expense.');
     },
   });
 
