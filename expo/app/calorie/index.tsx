@@ -659,7 +659,7 @@ export default function CalorieTrackerScreen() {
         <View style={styles.modalBackdrop}>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalKeyboard}>
             <View style={styles.waterModalCard}>
-              <Text style={styles.waterModalTitle}>Edit water entry</Text>
+              <Text style={styles.waterModalTitle}>Edit water entry ({editingWaterLog?.unit ?? 'ml'})</Text>
               <Text style={styles.waterModalHint}>
                 {editingWaterLog ? new Date(editingWaterLog.loggedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''}
               </Text>
@@ -669,7 +669,7 @@ export default function CalorieTrackerScreen() {
                 onChangeText={setWaterAmountDraft}
                 keyboardType="decimal-pad"
                 accessibilityLabel="Water amount"
-                placeholder="Amount in milliliters"
+                placeholder={`Amount in ${editingWaterLog?.unit ?? 'ml'}`}
                 placeholderTextColor="#777"
                 autoFocus
               />
