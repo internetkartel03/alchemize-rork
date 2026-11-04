@@ -781,10 +781,16 @@ export default function FinancialTrackerScreen() {
                 <StickyNote size={20} color="#fbbf24" />
                 <Text style={styles.sectionTitle}>Notepad</Text>
               </View>
-              <TouchableOpacity onPress={saveNotepad} style={styles.saveNoteBtn}>
-                <Save size={16} color="#fbbf24" />
-                <Text style={styles.saveNoteBtnText}>Save</Text>
-              </TouchableOpacity>
+              <View style={styles.noteHeaderActions}>
+                <TouchableOpacity onPress={clearNotepad} style={styles.clearNoteBtn} accessibilityRole="button" accessibilityLabel="Clear financial notepad">
+                  <Trash2 size={15} color="#F87171" />
+                  <Text style={styles.clearNoteBtnText}>Clear</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={saveNotepad} style={styles.saveNoteBtn}>
+                  <Save size={16} color="#fbbf24" />
+                  <Text style={styles.saveNoteBtnText}>Save</Text>
+                </TouchableOpacity>
+              </View>
             </View>
             <TextInput
               style={styles.notepadInput}
@@ -806,16 +812,34 @@ export default function FinancialTrackerScreen() {
                 <Lock size={20} color="#fbbf24" />
                 <Text style={styles.sectionTitle}>Financial Notes</Text>
               </View>
-              <TouchableOpacity
-                onPress={() => {
-                  if (editingNotes) handleSaveFinancialNotes();
-                  else setEditingNotes(true);
-                }}
-                style={styles.editBtn}
-              >
-                {editingNotes ? <Save size={16} color="#a78bfa" /> : <Edit3 size={16} color="#a78bfa" />}
-                <Text style={styles.editBtnText}>{editingNotes ? 'Save' : 'Edit'}</Text>
-              </TouchableOpacity>
+              <View style={styles.noteHeaderActions}>
+                {notesData && !editingNotes && (
+                  <TouchableOpacity
+                    onPress={() => Alert.alert('Delete Financial Notes', 'Delete saved login and debt notes? This cannot be undone.', [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Delete', style: 'destructive', onPress: () => deleteFinancialNotesMutation.mutate() },
+                    ])}
+                    style={styles.clearNoteBtn}
+                    disabled={deleteFinancialNotesMutation.isPending}
+                    accessibilityRole="button"
+                    accessibilityLabel="Delete financial notes"
+                  >
+                    <Trash2 size={15} color="#F87171" />
+                    <Text style={styles.clearNoteBtnText}>Delete</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  onPress={() => {
+                    if (editingNotes) handleSaveFinancialNotes();
+                    else setEditingNotes(true);
+                  }}
+                  style={styles.editBtn}
+                  disabled={saveNotesMutation.isPending}
+                >
+                  {editingNotes ? <Save size={16} color="#a78bfa" /> : <Edit3 size={16} color="#a78bfa" />}
+                  <Text style={styles.editBtnText}>{editingNotes ? 'Save' : 'Edit'}</Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
             <View style={styles.notesPanel}>
@@ -901,7 +925,7 @@ export default function FinancialTrackerScreen() {
           <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
               <View style={styles.modalHandle} />
               <Text style={styles.modalTitle}>
-                {addModalType === 'income' ? 'Add Income' : 'Add Expense'}
+                {editingRecord ? (addModalType === 'income' ? 'Edit Income' : 'Edit Expense') : (addModalType === 'income' ? 'Add Income' : 'Add Expense')}
               </Text>
 
               <ScrollView
@@ -965,12 +989,14 @@ export default function FinancialTrackerScreen() {
                     addModalType === 'income' ? styles.submitBtnIncome : styles.submitBtnExpense,
                   ]}
                   onPress={handleAddSubmit}
-                  disabled={addIncomeMutation.isPending || addExpenseMutation.isPending}
+                  disabled={addIncomeMutation.isPending || addExpenseMutation.isPending || updateIncomeMutation.isPending || updateExpenseMutation.isPending}
                   activeOpacity={0.8}
                 >
                   <Text style={styles.submitBtnText}>
-                    {(addIncomeMutation.isPending || addExpenseMutation.isPending)
+                    {(addIncomeMutation.isPending || addExpenseMutation.isPending || updateIncomeMutation.isPending || updateExpenseMutation.isPending)
                       ? 'Saving...'
+                      : editingRecord
+                      ? 'Save Changes'
                       : addModalType === 'income'
                       ? 'Add Income'
                       : 'Add Expense'}
