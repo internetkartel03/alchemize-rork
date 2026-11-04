@@ -4,7 +4,7 @@ import { View, StyleSheet, FlatList, Text, TextInput, Switch, Platform, Alert, K
 import { TouchableOpacity } from '@/components/HapticTouchable';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, CheckCircle2, Circle, Calendar, Bell, ChevronRight, AlertCircle, X, FileText, Flame, Zap } from 'lucide-react-native';
+import { Plus, Pencil, Trash2, CheckCircle2, Circle, Calendar, Bell, ChevronRight, AlertCircle, X, FileText, Flame, Zap } from 'lucide-react-native';
 import { tasksDb } from '@/lib/db/tasks';
 import type { Task } from '@/types';
 import LoadingState from '@/components/LoadingState';
@@ -44,6 +44,7 @@ export default function TodosScreen() {
   const [notesModalVisible, setNotesModalVisible] = useState(false);
   const [selectedTaskForNotes, setSelectedTaskForNotes] = useState<Task | null>(null);
   const [notesText, setNotesText] = useState('');
+  const [taskTitleText, setTaskTitleText] = useState('');
 
   const { data: allTasks = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['tasks'],
@@ -102,12 +103,33 @@ export default function TodosScreen() {
     onSuccess: () => {
       void invalidateTasks(queryClient);
     },
+    onError: (error: any) => {
+      Alert.alert('Update failed', error?.message || 'Could not update this task.');
+    },
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => tasksDb.delete(id),
-    onSuccess: () => {
+    mutationFn: async (task: Task) => {
+      await tasksDb.delete(task.id);
+      let reminderCleanupFailed = false;
+      if (task.notificationId) {
+        try {
+          await cancelTaskReminder(task.notificationId);
+        } catch (error) {
+          console.error('[Todos] Reminder cleanup failed:', error);
+          reminderCleanupFailed = true;
+        }
+      }
+      return { reminderCleanupFailed };
+    },
+    onSuccess: (result) => {
       void invalidateTasks(queryClient);
+      if (result.reminderCleanupFailed) {
+        Alert.alert('Task deleted with warning', 'The task was removed, but its scheduled reminder could not be canceled.');
+      }
+    },
+    onError: (error: any) => {
+      Alert.alert('Delete failed', error?.message || 'Could not delete this task.');
     },
   });
 
@@ -293,28 +315,76 @@ export default function TodosScreen() {
 
   const openNotesModal = (task: Task) => {
     setSelectedTaskForNotes(task);
+    setTaskTitleText(task.title);
     setNotesText(task.notes || '');
     setNotesModalVisible(true);
   };
 
-  const saveNotes = () => {
+  const saveNotes = async () => {
     if (!selectedTaskForNotes) return;
+    const nextTitle = taskTitleText.trim();
+    if (!nextTitle) {
+      Alert.alert('Title required', 'Enter a title before saving this task.');
+      return;
+    }
 
     const updatedTask: Task = {
       ...selectedTaskForNotes,
-      notes: notesText,
+      title: nextTitle,
+      notes: notesText.trim(),
       updatedAt: Date.now(),
     };
+    const oldNotificationId = selectedTaskForNotes.notificationId;
+    let replacementNotificationId: string | null = null;
+    let reminderRefreshFailed = false;
 
-    updateMutation.mutate(updatedTask);
+    if (nextTitle !== selectedTaskForNotes.title && updatedTask.reminderEnabled && updatedTask.dueDate) {
+      try {
+        replacementNotificationId = await scheduleNotification(updatedTask);
+        if (replacementNotificationId) updatedTask.notificationId = replacementNotificationId;
+        else reminderRefreshFailed = Boolean(oldNotificationId);
+      } catch (error) {
+        console.error('[Todos] Reminder reschedule failed:', error);
+        reminderRefreshFailed = Boolean(oldNotificationId);
+      }
+    }
+
+    try {
+      await updateMutation.mutateAsync(updatedTask);
+    } catch {
+      if (replacementNotificationId && replacementNotificationId !== oldNotificationId) {
+        try {
+          await cancelTaskReminder(replacementNotificationId);
+        } catch (error) {
+          console.error('[Todos] New reminder rollback failed:', error);
+        }
+      }
+      return;
+    }
+
+    let reminderCleanupFailed = false;
+    if (replacementNotificationId && oldNotificationId && replacementNotificationId !== oldNotificationId) {
+      try {
+        await cancelTaskReminder(oldNotificationId);
+      } catch (error) {
+        console.error('[Todos] Old reminder cleanup failed:', error);
+        reminderCleanupFailed = true;
+      }
+    }
+
     setNotesModalVisible(false);
     setSelectedTaskForNotes(null);
+    setTaskTitleText('');
     setNotesText('');
+    if (reminderRefreshFailed || reminderCleanupFailed) {
+      Alert.alert('Task saved with warning', 'The task details were saved, but its reminder could not be fully refreshed.');
+    }
   };
 
   const cancelNotes = () => {
     setNotesModalVisible(false);
     setSelectedTaskForNotes(null);
+    setTaskTitleText('');
     setNotesText('');
   };
 
@@ -401,8 +471,11 @@ export default function TodosScreen() {
             onPress={() => openNotesModal(item)}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             style={styles.notesButton}
+            accessibilityRole="button"
+            accessibilityLabel={`Edit ${item.title}`}
+            accessibilityHint="Edits this task title and notes"
           >
-            <Plus size={20} color="#10b981" strokeWidth={2.5} />
+            <Pencil size={18} color="#10b981" strokeWidth={2.5} />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -423,9 +496,11 @@ export default function TodosScreen() {
               <TouchableOpacity
                 style={styles.actionButton}
                 onPress={() => openNotesModal(item)}
+                accessibilityRole="button"
+                accessibilityLabel={`Edit ${item.title}`}
               >
-                <Plus size={16} color="#10b981" />
-                <Text style={styles.actionButtonText}>Notes</Text>
+                <Pencil size={16} color="#10b981" />
+                <Text style={styles.actionButtonText}>Edit Task</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -477,23 +552,21 @@ export default function TodosScreen() {
                 style={[styles.actionButton, styles.deleteButton]}
                 onPress={() => {
                   Alert.alert(
-                    'Delete Task',
-                    'Are you sure you want to delete this task?',
+                    'Delete task?',
+                    `Remove "${item.title}" from your tasks?${item.notificationId ? ' Its reminder will also be canceled.' : ''}`,
                     [
                       { text: 'Cancel', style: 'cancel' },
-                      { 
-                        text: 'Delete', 
+                      {
+                        text: 'Delete',
                         style: 'destructive',
-                        onPress: async () => {
-                          if (item.notificationId) {
-                            await cancelNotification(item.notificationId);
-                          }
-                          deleteMutation.mutate(item.id);
-                        }
+                        onPress: () => deleteMutation.mutate(item),
                       },
                     ]
                   );
                 }}
+                accessibilityRole="button"
+                accessibilityLabel={`Delete ${item.title}`}
+                accessibilityHint="Asks for confirmation before deleting this task"
               >
                 <Trash2 size={16} color="#ef4444" />
                 <Text style={[styles.actionButtonText, styles.deleteButtonText]}>Delete</Text>
@@ -613,7 +686,7 @@ export default function TodosScreen() {
             <View style={styles.modalHeader}>
               <View style={styles.modalTitleRow}>
                 <FileText size={24} color="#10b981" />
-                <Text style={styles.modalTitle}>Add Notes</Text>
+                <Text style={styles.modalTitle}>Edit Task</Text>
               </View>
               <TouchableOpacity onPress={cancelNotes} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                 <X size={24} color="#fff" />
@@ -622,20 +695,31 @@ export default function TodosScreen() {
 
             {selectedTaskForNotes && (
               <View style={styles.modalTaskInfo}>
-                <Text style={styles.modalTaskTitle}>{selectedTaskForNotes.title}</Text>
+                <Text style={styles.modalTaskTitle}>Title</Text>
+                <TextInput
+                  style={styles.taskTitleInput}
+                  value={taskTitleText}
+                  onChangeText={setTaskTitleText}
+                  placeholder="Task title..."
+                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  accessibilityLabel="Task title"
+                  maxLength={200}
+                  autoFocus
+                />
               </View>
             )}
 
             <ScrollView style={styles.notesInputContainer} keyboardShouldPersistTaps="handled">
+              <Text style={styles.modalTaskTitle}>Notes</Text>
               <TextInput
                 style={styles.notesInput}
                 value={notesText}
                 onChangeText={setNotesText}
-                placeholder="Add your notes here...\n\nYou have plenty of space to write down details, ideas, or anything related to this task."
+                placeholder="Add details, ideas, or anything related to this task..."
                 placeholderTextColor="rgba(255,255,255,0.3)"
+                accessibilityLabel="Task notes"
                 multiline
                 textAlignVertical="top"
-                autoFocus
               />
             </ScrollView>
 
@@ -644,7 +728,7 @@ export default function TodosScreen() {
                 <Text style={styles.modalCancelText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.modalSaveButton} onPress={saveNotes}>
-                <Text style={styles.modalSaveText}>Save Notes</Text>
+                <Text style={styles.modalSaveText}>Save Changes</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -883,9 +967,20 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(255,255,255,0.1)',
   },
   modalTaskTitle: {
-    fontSize: 16,
-    fontWeight: '500' as const,
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: 'rgba(255,255,255,0.75)',
+    marginBottom: 8,
+  },
+  taskTitleInput: {
+    minHeight: 48,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    paddingHorizontal: 12,
     color: '#fff',
+    fontSize: 16,
   },
   notesInputContainer: {
     flex: 1,
@@ -952,8 +1047,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   notesButton: {
-    padding: 4,
-    borderRadius: 8,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: 'rgba(16, 185, 129, 0.1)',
     borderWidth: 1,
     borderColor: 'rgba(16, 185, 129, 0.3)',
