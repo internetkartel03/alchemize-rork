@@ -51,8 +51,6 @@ export default function AddWorkoutScreen() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (Platform.OS === 'web') return;
-
       const durationNum = parseInt(duration, 10);
       if (isNaN(durationNum) || durationNum <= 0) {
         throw new Error('Invalid duration');

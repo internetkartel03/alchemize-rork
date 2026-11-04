@@ -23,7 +23,6 @@ export default function FitnessHubScreen() {
   const { data: templates = [] } = useQuery({
     queryKey: ['workoutTemplates'],
     queryFn: async () => {
-      if (Platform.OS === 'web') return [];
       const data = await workoutTemplatesDb.getAll();
       if (data.length === 0) {
         await seedWorkoutTemplates();
@@ -35,13 +34,12 @@ export default function FitnessHubScreen() {
 
   const { data: sessions = [] } = useQuery({
     queryKey: ['workoutSessions'],
-    queryFn: () => Platform.OS === 'web' ? [] : workoutSessionsDb.getAll(),
+    queryFn: () => workoutSessionsDb.getAll(),
   });
 
   const { data: todayMetric } = useQuery({
     queryKey: ['todayMetric'],
     queryFn: async () => {
-      if (Platform.OS === 'web') return null;
       const today = new Date();
       const dateStr = today.toISOString().split('T')[0];
       return await normalizedMetricsDb.getByDate(dateStr);
@@ -55,13 +53,12 @@ export default function FitnessHubScreen() {
 
   const { data: activePlan } = useQuery({
     queryKey: ['activeFitnessPlan'],
-    queryFn: () => Platform.OS === 'web' ? null : fitnessPlansDb.getActive(),
+    queryFn: () => fitnessPlansDb.getActive(),
   });
 
   const { data: awards = [] } = useQuery({
     queryKey: ['fitnessAwards'],
     queryFn: async () => {
-      if (Platform.OS === 'web') return [];
       const data = await awardsDb.getAll();
       if (data.length === 0) {
         await seedAwards();

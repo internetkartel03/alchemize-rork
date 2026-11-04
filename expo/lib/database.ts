@@ -39,6 +39,57 @@ let currentUserId: string | null = null;
 let dbInitPromise: Promise<SQLite.SQLiteDatabase | null> | null = null;
 
 const webStore: Record<string, any[]> = {};
+const WEB_STORE_KEY = '@alchemize/webdb/v1';
+let webHydratePromise: Promise<void> | null = null;
+let webPersistScheduled = false;
+
+async function getWebStorage() {
+  const mod = await import('@react-native-async-storage/async-storage');
+  return mod.default;
+}
+
+/**
+ * Restores the web data store from browser storage. On web there is no SQLite,
+ * so every table lives in `webStore`; without this the store would be lost on
+ * every page reload.
+ */
+export async function hydrateWebStore(): Promise<void> {
+  if (Platform.OS !== 'web') return;
+  if (!webHydratePromise) {
+    webHydratePromise = (async () => {
+      try {
+        const storage = await getWebStorage();
+        const raw = await storage.getItem(WEB_STORE_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') return;
+        for (const [table, rows] of Object.entries(parsed)) {
+          if (Array.isArray(rows)) webStore[table] = rows as any[];
+        }
+        console.log('[Database] Web store restored:', Object.keys(webStore).length, 'tables');
+      } catch (error) {
+        console.warn('[Database] Failed to restore web store:', error);
+      }
+    })();
+  }
+  await webHydratePromise;
+}
+
+/** Writes the web store back to browser storage, batching same-tick mutations. */
+function persistWebStore() {
+  if (Platform.OS !== 'web') return;
+  if (webPersistScheduled) return;
+  webPersistScheduled = true;
+  setTimeout(async () => {
+    webPersistScheduled = false;
+    try {
+      const storage = await getWebStorage();
+      await storage.setItem(WEB_STORE_KEY, JSON.stringify(webStore));
+    } catch (error) {
+      console.warn('[Database] Failed to persist web store:', error);
+    }
+  }, 0);
+}
 
 function getWebTable(name: string): any[] {
   if (!webStore[name]) {
@@ -103,14 +154,16 @@ const webDb: DatabaseAdapter & { _handleInsert: any; _handleUpdate: any; _handle
   },
   async runAsync(sql: string, params?: any[]): Promise<any> {
     const sqlUpper = sql.trim().toUpperCase();
+    let result: any = { changes: 0 };
     if (sqlUpper.startsWith('INSERT')) {
-      return this._handleInsert(sql, params || []);
+      result = this._handleInsert(sql, params || []);
     } else if (sqlUpper.startsWith('UPDATE')) {
-      return this._handleUpdate(sql, params || []);
+      result = this._handleUpdate(sql, params || []);
     } else if (sqlUpper.startsWith('DELETE')) {
-      return this._handleDelete(sql, params || []);
+      result = this._handleDelete(sql, params || []);
     }
-    return { changes: 0 };
+    persistWebStore();
+    return result;
   },
   async execAsync(_sql: string): Promise<void> {
     const statements = _sql.split(';').map(s => s.trim()).filter(Boolean);
@@ -123,6 +176,7 @@ const webDb: DatabaseAdapter & { _handleInsert: any; _handleUpdate: any; _handle
         }
       }
     }
+    persistWebStore();
   },
   _handleInsert(sql: string, params: any[]) {
     const match = sql.match(/INSERT\s+(?:OR\s+(?:REPLACE|IGNORE)\s+)?INTO\s+(\w+)\s*\(([^)]+)\)/i);
@@ -306,7 +360,8 @@ export async function initDatabase(): Promise<SQLite.SQLiteDatabase | null> {
   if (dbInitPromise) return dbInitPromise;
   
   if (Platform.OS === 'web') {
-    console.log('[Database] Disabled on web - using memory-only mode');
+    await hydrateWebStore();
+    console.log('[Database] Web mode - using durable browser storage');
     return null;
   }
   
@@ -933,6 +988,7 @@ export function getDatabase(): DatabaseAdapter {
 
 export async function ensureDatabase(): Promise<DatabaseAdapter> {
   if (Platform.OS === 'web') {
+    await hydrateWebStore();
     return webDb;
   }
   if (!db) {
@@ -953,6 +1009,12 @@ export async function ensureDatabase(): Promise<DatabaseAdapter> {
 export async function resetDatabase() {
   if (Platform.OS === 'web') {
     Object.keys(webStore).forEach(key => { webStore[key] = []; });
+    try {
+      const storage = await getWebStorage();
+      await storage.removeItem(WEB_STORE_KEY);
+    } catch (error) {
+      console.warn('[Database] Failed to clear web store:', error);
+    }
     console.log('[Database] Web store reset');
     return;
   }

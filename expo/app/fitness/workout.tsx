@@ -68,7 +68,6 @@ export default function WorkoutScreen() {
 
   const completeMutation = useMutation({
     mutationFn: async () => {
-      if (Platform.OS === 'web') return;
       if (!template) throw new Error('No template');
 
       const durationMinutes = Math.max(1, Math.round(elapsedSeconds / 60));

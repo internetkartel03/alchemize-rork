@@ -57,8 +57,6 @@ export default function AddMealScreen() {
 
   const createMutation = useMutation({
     mutationFn: async (foodLog: FoodLog) => {
-      if (Platform.OS === 'web') return;
-      
       const calendarEventId = `cal-${Date.now()}`;
       const loggedDate = new Date(foodLog.loggedAt);
       const timeStr = loggedDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
