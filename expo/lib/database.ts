@@ -2095,7 +2095,8 @@ export const normalizedMetricsDb = {
 export const fitnessPlansDb = {
   async getAll(): Promise<FitnessPlan[]> {
     const database = await ensureDatabase();
-    const rows = await database.getAllAsync<any>('SELECT * FROM fitness_plans ORDER BY createdAt DESC');
+    const userId = getCurrentUserId() ?? 'guest';
+    const rows = await database.getAllAsync<any>('SELECT * FROM fitness_plans WHERE userId = ? ORDER BY createdAt DESC', [userId]);
     return rows.map(row => ({
       ...row,
       preferredCategories: safeJsonParse(row.preferredCategories, []),
@@ -2105,7 +2106,8 @@ export const fitnessPlansDb = {
   
   async getActive(): Promise<FitnessPlan | null> {
     const database = await ensureDatabase();
-    const row = await database.getFirstAsync<any>('SELECT * FROM fitness_plans WHERE active = 1 LIMIT 1');
+    const userId = getCurrentUserId() ?? 'guest';
+    const row = await database.getFirstAsync<any>('SELECT * FROM fitness_plans WHERE active = ? AND userId = ? LIMIT 1', [1, userId]);
     if (!row) return null;
     return {
       ...row,
@@ -2116,29 +2118,34 @@ export const fitnessPlansDb = {
   
   async create(plan: FitnessPlan): Promise<void> {
     const database = await ensureDatabase();
+    const userId = getCurrentUserId() ?? 'guest';
     if (plan.active) {
-      await database.runAsync('UPDATE fitness_plans SET active = 0');
+      await database.runAsync('UPDATE fitness_plans SET active = ? WHERE userId = ?', [0, userId]);
     }
     await database.runAsync(
-      'INSERT INTO fitness_plans (id, name, daysPerWeek, preferredCategories, durationRangeMin, durationRangeMax, intensity, equipment, active, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [plan.id, plan.name, plan.daysPerWeek, JSON.stringify(plan.preferredCategories), plan.durationRangeMin, plan.durationRangeMax, plan.intensity, plan.equipment, plan.active ? 1 : 0, plan.createdAt]
+      'INSERT INTO fitness_plans (id, userId, name, daysPerWeek, preferredCategories, durationRangeMin, durationRangeMax, intensity, equipment, active, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [plan.id, userId, plan.name, plan.daysPerWeek, JSON.stringify(plan.preferredCategories), plan.durationRangeMin, plan.durationRangeMax, plan.intensity, plan.equipment, plan.active ? 1 : 0, plan.createdAt]
     );
   },
   
   async update(plan: FitnessPlan): Promise<void> {
     const database = await ensureDatabase();
+    const userId = getCurrentUserId() ?? 'guest';
     if (plan.active) {
-      await database.runAsync('UPDATE fitness_plans SET active = 0 WHERE id != ?', [plan.id]);
+      await database.runAsync('UPDATE fitness_plans SET active = ? WHERE id != ? AND userId = ?', [0, plan.id, userId]);
     }
-    await database.runAsync(
-      'UPDATE fitness_plans SET name = ?, daysPerWeek = ?, preferredCategories = ?, durationRangeMin = ?, durationRangeMax = ?, intensity = ?, equipment = ?, active = ? WHERE id = ?',
-      [plan.name, plan.daysPerWeek, JSON.stringify(plan.preferredCategories), plan.durationRangeMin, plan.durationRangeMax, plan.intensity, plan.equipment, plan.active ? 1 : 0, plan.id]
+    const result = await database.runAsync(
+      'UPDATE fitness_plans SET name = ?, daysPerWeek = ?, preferredCategories = ?, durationRangeMin = ?, durationRangeMax = ?, intensity = ?, equipment = ?, active = ? WHERE id = ? AND userId = ?',
+      [plan.name, plan.daysPerWeek, JSON.stringify(plan.preferredCategories), plan.durationRangeMin, plan.durationRangeMax, plan.intensity, plan.equipment, plan.active ? 1 : 0, plan.id, userId]
     );
+    if (result?.changes === 0) throw new Error('Fitness plan was not found for the current user');
   },
   
   async delete(id: string): Promise<void> {
     const database = await ensureDatabase();
-    await database.runAsync('DELETE FROM fitness_plans WHERE id = ?', [id]);
+    const userId = getCurrentUserId() ?? 'guest';
+    const result = await database.runAsync('DELETE FROM fitness_plans WHERE id = ? AND userId = ?', [id, userId]);
+    if (result?.changes === 0) throw new Error('Fitness plan was not found for the current user');
   },
 };
 
