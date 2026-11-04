@@ -11,7 +11,7 @@ create table if not exists public.ai_request_usage (
 );
 
 alter table public.ai_request_usage enable row level security;
-revoke all on table public.ai_request_usage from anon, authenticated;
+revoke all on table public.ai_request_usage from public, anon, authenticated;
 
 create or replace function public.consume_ai_request()
 returns table (allowed boolean, retry_after_seconds integer)
