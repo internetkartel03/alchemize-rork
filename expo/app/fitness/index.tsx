@@ -1,12 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import { View, StyleSheet, ScrollView, Text, ImageBackground, Platform } from 'react-native';
+import { View, StyleSheet, ScrollView, Text, ImageBackground, Platform, Modal, Pressable, TextInput, Alert, KeyboardAvoidingView } from 'react-native';
 import { TouchableOpacity } from '@/components/HapticTouchable';
 import { useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Play, TrendingUp, Award, ChevronRight, Plus, Dumbbell, Pencil } from 'lucide-react-native';
+import { Play, TrendingUp, Award, ChevronRight, Plus, Dumbbell, Pencil, Trash2 } from 'lucide-react-native';
 import FitnessGoalsModal, { type FitnessGoalTargets } from '@/components/FitnessGoalsModal';
 import { workoutTemplatesDb, workoutSessionsDb, normalizedMetricsDb, fitnessGoalsDb, fitnessPlansDb, awardsDb } from '@/lib/db/fitness';
-import type { Award as AwardType } from '@/types';
+import type { Award as AwardType, WorkoutSession, NormalizedMetric, WorkoutTemplate } from '@/types';
 import {
   seedWorkoutTemplates,
   seedAwards,
@@ -36,6 +36,7 @@ export default function FitnessHubScreen() {
     queryKey: ['workoutSessions'],
     queryFn: () => workoutSessionsDb.getAll(),
   });
+  const manualSessions = useMemo(() => sessions.filter(session => session.source === 'manual'), [sessions]);
 
   const { data: todayMetric } = useQuery({
     queryKey: ['todayMetric'],
@@ -87,6 +88,10 @@ export default function FitnessHubScreen() {
 
   const [goalsModalVisible, setGoalsModalVisible] = useState(false);
   const [savingGoals, setSavingGoals] = useState(false);
+  const [editingWorkout, setEditingWorkout] = useState<WorkoutSession | null>(null);
+  const [durationDraft, setDurationDraft] = useState('');
+  const [caloriesDraft, setCaloriesDraft] = useState('');
+  const [savingWorkout, setSavingWorkout] = useState(false);
   const queryClient = useQueryClient();
 
   const handleSaveGoals = async (targets: FitnessGoalTargets) => {
