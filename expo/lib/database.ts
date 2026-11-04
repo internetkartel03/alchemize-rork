@@ -482,6 +482,7 @@ export async function initDatabase(): Promise<SQLite.SQLiteDatabase | null> {
     CREATE TABLE IF NOT EXISTS financial_income (
       id TEXT PRIMARY KEY,
       userId TEXT NOT NULL,
+      incomeTitle TEXT NOT NULL DEFAULT '',
       incomeGross REAL NOT NULL,
       incomeNet REAL NOT NULL,
       taxAmount REAL NOT NULL DEFAULT 0,
@@ -988,6 +989,16 @@ if (!gratitudeHasReflection) {
       }
     }
     
+    const financialIncomeHasTitle = await checkColumn('financial_income', 'incomeTitle');
+    if (!financialIncomeHasTitle) {
+      try {
+        await database.execAsync("ALTER TABLE financial_income ADD COLUMN incomeTitle TEXT NOT NULL DEFAULT ''");
+        console.log('[Database] Added incomeTitle to financial_income');
+      } catch (error) {
+        console.error('[Database] Failed to add incomeTitle:', error);
+      }
+    }
+
     console.log('[Database] Migrations completed');
   } catch (error) {
     console.error('[Database] Migration error:', error);
