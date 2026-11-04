@@ -228,7 +228,7 @@ Provide an estimated calorie burn based on this information. Consider typical me
           textAlignVertical="top"
         />
 
-        {workoutDescription.trim() && duration && (
+        {Boolean(workoutDescription.trim() && duration) && (
           <TouchableOpacity
             style={styles.estimateButton}
             onPress={() => estimateCaloriesMutation.mutate()}
