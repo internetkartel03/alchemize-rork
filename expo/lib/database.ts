@@ -1201,18 +1201,29 @@ export const goalsDb = {
   async delete(id: string): Promise<void> {
     const database = await ensureDatabase();
     const userId = getCurrentUserId() ?? 'guest';
-    await database.runAsync('DELETE FROM goals WHERE id = ? AND userId = ?', [id, userId]);
+    const goal = await database.getFirstAsync<{ id: string }>('SELECT id FROM goals WHERE id = ? AND userId = ?', [id, userId]);
+    if (!goal) throw new Error('Goal not found or no longer available for this account.');
+    await database.runAsync('DELETE FROM goal_checklist_items WHERE goalId = ?', [id]);
+    await database.runAsync('DELETE FROM goal_completions WHERE goalId = ?', [id]);
+    const result = await database.runAsync('DELETE FROM goals WHERE id = ? AND userId = ?', [id, userId]);
+    if (result?.changes === 0) throw new Error('Goal not found or no longer available for this account.');
   },
 };
 
 export const goalChecklistDb = {
   async getByGoalId(goalId: string): Promise<GoalChecklistItem[]> {
     const database = await ensureDatabase();
+    const userId = getCurrentUserId() ?? 'guest';
+    const goal = await database.getFirstAsync<{ id: string }>('SELECT id FROM goals WHERE id = ? AND userId = ?', [goalId, userId]);
+    if (!goal) return [];
     return database.getAllAsync<GoalChecklistItem>('SELECT * FROM goal_checklist_items WHERE goalId = ?', [goalId]);
   },
   
   async create(item: GoalChecklistItem): Promise<void> {
     const database = await ensureDatabase();
+    const userId = getCurrentUserId() ?? 'guest';
+    const goal = await database.getFirstAsync<{ id: string }>('SELECT id FROM goals WHERE id = ? AND userId = ?', [item.goalId, userId]);
+    if (!goal) throw new Error('Goal not found or no longer available for this account.');
     await database.runAsync(
       'INSERT INTO goal_checklist_items (id, goalId, text, isDone) VALUES (?, ?, ?, ?)',
       [item.id, item.goalId, item.text, item.isDone ? 1 : 0]
@@ -1221,15 +1232,27 @@ export const goalChecklistDb = {
   
   async update(item: GoalChecklistItem): Promise<void> {
     const database = await ensureDatabase();
-    await database.runAsync(
-      'UPDATE goal_checklist_items SET text = ?, isDone = ? WHERE id = ?',
-      [item.text, item.isDone ? 1 : 0, item.id]
+    const userId = getCurrentUserId() ?? 'guest';
+    const existing = await database.getFirstAsync<{ goalId: string }>('SELECT goalId FROM goal_checklist_items WHERE id = ?', [item.id]);
+    if (!existing) throw new Error('Checklist item not found or no longer available for this account.');
+    const goal = await database.getFirstAsync<{ id: string }>('SELECT id FROM goals WHERE id = ? AND userId = ?', [existing.goalId, userId]);
+    if (!goal) throw new Error('Checklist item not found or no longer available for this account.');
+    const result = await database.runAsync(
+      'UPDATE goal_checklist_items SET text = ?, isDone = ? WHERE id = ? AND goalId = ?',
+      [item.text, item.isDone ? 1 : 0, item.id, existing.goalId]
     );
+    if (result?.changes === 0) throw new Error('Checklist item not found or no longer available for this account.');
   },
   
   async delete(id: string): Promise<void> {
     const database = await ensureDatabase();
-    await database.runAsync('DELETE FROM goal_checklist_items WHERE id = ?', [id]);
+    const userId = getCurrentUserId() ?? 'guest';
+    const existing = await database.getFirstAsync<{ goalId: string }>('SELECT goalId FROM goal_checklist_items WHERE id = ?', [id]);
+    if (!existing) throw new Error('Checklist item not found or no longer available for this account.');
+    const goal = await database.getFirstAsync<{ id: string }>('SELECT id FROM goals WHERE id = ? AND userId = ?', [existing.goalId, userId]);
+    if (!goal) throw new Error('Checklist item not found or no longer available for this account.');
+    const result = await database.runAsync('DELETE FROM goal_checklist_items WHERE id = ? AND goalId = ?', [id, existing.goalId]);
+    if (result?.changes === 0) throw new Error('Checklist item not found or no longer available for this account.');
   },
 };
 
