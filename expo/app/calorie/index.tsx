@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, Text, Animated, Dimensions, Platform, ImageBackground } from 'react-native';
+import { View, StyleSheet, ScrollView, Text, Animated, Dimensions, Platform, ImageBackground, Alert, Modal, TextInput, KeyboardAvoidingView } from 'react-native';
 import { TouchableOpacity } from '@/components/HapticTouchable';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -15,10 +15,13 @@ import {
   User,
   Zap,
   Calendar,
+  Pencil,
+  Trash2,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Svg, { Circle, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
 import { foodLogsDb, userNutritionProfileDb, waterLogsDb } from '@/lib/db/food';
+import { appointmentsDb } from '@/lib/db';
 import type { FoodLog, WaterLog } from '@/types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -41,6 +44,8 @@ export default function CalorieTrackerScreen() {
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [editingWaterLog, setEditingWaterLog] = useState<WaterLog | null>(null);
+  const [waterAmountDraft, setWaterAmountDraft] = useState('');
   
   const calorieAnim = useRef(new Animated.Value(0)).current;
   const proteinAnim = useRef(new Animated.Value(0)).current;
@@ -96,6 +101,57 @@ export default function CalorieTrackerScreen() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['waterLogs'] });
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    },
+  });
+
+  const updateWaterMutation = useMutation({
+    mutationFn: async (log: WaterLog) => waterLogsDb.update(log),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['waterLogs'] });
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setEditingWaterLog(null);
+    },
+    onError: (error: any) => {
+      Alert.alert('Update failed', error?.message || 'Could not update this water entry.');
+    },
+  });
+
+  const deleteWaterMutation = useMutation({
+    mutationFn: async (log: WaterLog) => waterLogsDb.delete(log.id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['waterLogs'] });
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    },
+    onError: (error: any) => {
+      Alert.alert('Delete failed', error?.message || 'Could not delete this water entry.');
+    },
+  });
+
+  const deleteFoodMutation = useMutation({
+    mutationFn: async (log: FoodLog) => {
+      await foodLogsDb.delete(log.id);
+      let appointmentCleanupFailed = false;
+      if (log.calendarEventId) {
+        try {
+          const linkedAppointment = (await appointmentsDb.getAll()).find((item) => item.id === log.calendarEventId);
+          if (linkedAppointment) await appointmentsDb.delete(linkedAppointment.id);
+        } catch (error) {
+          console.error('[CalorieTracker] Linked appointment cleanup failed:', error);
+          appointmentCleanupFailed = true;
+        }
+      }
+      return { appointmentCleanupFailed };
+    },
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: ['foodLogs'] });
+      void queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (result.appointmentCleanupFailed) {
+        Alert.alert('Food entry deleted with warning', 'The food entry was deleted, but its linked nutrition appointment could not be removed.');
+      }
+    },
+    onError: (error: any) => {
+      Alert.alert('Delete failed', error?.message || 'Could not delete this food entry.');
     },
   });
 
@@ -224,6 +280,38 @@ export default function CalorieTrackerScreen() {
   const getMealCount = useCallback((mealType: string) => {
     return mealsByType[mealType]?.length || 0;
   }, [mealsByType]);
+
+  const confirmDeleteFood = useCallback((log: FoodLog) => {
+    const appointmentNote = log.calendarEventId
+      ? ' The linked nutrition appointment will also be removed.'
+      : '';
+    Alert.alert('Delete food entry?', `Remove ${log.foodName} from this day's food log?${appointmentNote}`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => deleteFoodMutation.mutate(log) },
+    ]);
+  }, [deleteFoodMutation.mutate]);
+
+  const openWaterEditor = useCallback((log: WaterLog) => {
+    setEditingWaterLog(log);
+    setWaterAmountDraft(String(log.amount));
+  }, []);
+
+  const saveWaterEdit = useCallback(() => {
+    if (!editingWaterLog) return;
+    const amount = Number(waterAmountDraft);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      Alert.alert('Invalid amount', 'Enter a water amount greater than zero.');
+      return;
+    }
+    updateWaterMutation.mutate({ ...editingWaterLog, amount });
+  }, [editingWaterLog, waterAmountDraft, updateWaterMutation.mutate]);
+
+  const confirmDeleteWater = useCallback((log: WaterLog) => {
+    Alert.alert('Delete water entry?', `Remove this ${log.amount} ${log.unit} entry?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => deleteWaterMutation.mutate(log) },
+    ]);
+  }, [deleteWaterMutation.mutate]);
 
   const circumference = (RING_SIZE - RING_STROKE) * Math.PI;
 
@@ -399,34 +487,97 @@ export default function CalorieTrackerScreen() {
               </TouchableOpacity>
             ))}
           </View>
+          <View style={styles.waterHistory}>
+            {waterLogs.length === 0 ? (
+              <Text style={styles.waterHistoryEmpty}>No water entries for this day.</Text>
+            ) : waterLogs.map((log) => (
+              <View key={log.id} style={styles.waterHistoryRow}>
+                <View style={styles.waterHistoryInfo}>
+                  <Text style={styles.waterHistoryAmount}>{log.amount} {log.unit}</Text>
+                  <Text style={styles.waterHistoryTime}>{new Date(log.loggedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</Text>
+                </View>
+                <View style={styles.logActions}>
+                  <TouchableOpacity
+                    style={styles.logActionButton}
+                    onPress={() => openWaterEditor(log)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Edit ${log.amount} ${log.unit} water entry`}
+                    accessibilityHint="Opens this water entry for editing"
+                  >
+                    <Pencil size={17} color="#93c5fd" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.logActionButton}
+                    onPress={() => confirmDeleteWater(log)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Delete ${log.amount} ${log.unit} water entry`}
+                    accessibilityHint="Asks for confirmation before deleting this water entry"
+                  >
+                    <Trash2 size={17} color="#fca5a5" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+          </View>
         </View>
 
         <View style={styles.mealsSection}>
           <Text style={styles.sectionTitle}>Meals</Text>
           {(['breakfast', 'lunch', 'dinner', 'snack'] as const).map((mealType) => (
-            <TouchableOpacity
-              key={mealType}
-              style={styles.mealRow}
-              onPress={() => router.push(`/calorie/add?meal=${mealType}` as any)}
-              activeOpacity={0.7}
-            >
-              <View style={styles.mealLeft}>
-                <View style={[styles.mealIcon, { backgroundColor: getMealIconBg(mealType) }]}>
-                  <Text style={styles.mealEmoji}>{getMealEmoji(mealType)}</Text>
+            <View key={mealType}>
+              <TouchableOpacity
+                style={styles.mealRow}
+                onPress={() => router.push(`/calorie/add?meal=${mealType}` as any)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`Add food to ${mealType}`}
+              >
+                <View style={styles.mealLeft}>
+                  <View style={[styles.mealIcon, { backgroundColor: getMealIconBg(mealType) }]}>
+                    <Text style={styles.mealEmoji}>{getMealEmoji(mealType)}</Text>
+                  </View>
+                  <View style={styles.mealInfo}>
+                    <Text style={styles.mealName}>{capitalizeFirst(mealType)}</Text>
+                    <Text style={styles.mealMeta}>
+                      {getMealCount(mealType)} {getMealCount(mealType) === 1 ? 'item' : 'items'}
+                    </Text>
+                  </View>
                 </View>
-                <View style={styles.mealInfo}>
-                  <Text style={styles.mealName}>{capitalizeFirst(mealType)}</Text>
-                  <Text style={styles.mealMeta}>
-                    {getMealCount(mealType)} {getMealCount(mealType) === 1 ? 'item' : 'items'}
-                  </Text>
+                <View style={styles.mealRight}>
+                  <Text style={styles.mealCals}>{getMealCalories(mealType)}</Text>
+                  <Text style={styles.mealCalsUnit}>cal</Text>
+                  <ChevronRight size={18} color="#444" style={styles.mealChevron} />
                 </View>
-              </View>
-              <View style={styles.mealRight}>
-                <Text style={styles.mealCals}>{getMealCalories(mealType)}</Text>
-                <Text style={styles.mealCalsUnit}>cal</Text>
-                <ChevronRight size={18} color="#444" style={styles.mealChevron} />
-              </View>
-            </TouchableOpacity>
+              </TouchableOpacity>
+              {mealsByType[mealType].map((log) => (
+                <View key={log.id} style={styles.foodLogRow}>
+                  <View style={styles.foodLogDetails}>
+                    <Text style={styles.foodLogName} numberOfLines={1}>{log.foodName}</Text>
+                    <Text style={styles.foodLogMeta}>{Math.round(log.calories)} cal ? {log.servingDescription}</Text>
+                  </View>
+                  <View style={styles.logActions}>
+                    <TouchableOpacity
+                      style={styles.logActionButton}
+                      onPress={() => router.push(`/calorie/add?id=${encodeURIComponent(log.id)}` as any)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Edit ${log.foodName}`}
+                      accessibilityHint="Opens this food entry for editing"
+                    >
+                      <Pencil size={17} color="#c4b5fd" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.logActionButton}
+                      onPress={() => confirmDeleteFood(log)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Delete ${log.foodName}`}
+                      accessibilityHint="Asks for confirmation before deleting this food entry"
+                    >
+                      <Trash2 size={17} color="#fca5a5" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </View>
           ))}
         </View>
 
@@ -499,6 +650,52 @@ export default function CalorieTrackerScreen() {
         </TouchableOpacity>
       </View>
       </ImageBackground>
+      <Modal
+        transparent
+        visible={Boolean(editingWaterLog)}
+        animationType="fade"
+        onRequestClose={() => setEditingWaterLog(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalKeyboard}>
+            <View style={styles.waterModalCard}>
+              <Text style={styles.waterModalTitle}>Edit water entry</Text>
+              <Text style={styles.waterModalHint}>
+                {editingWaterLog ? new Date(editingWaterLog.loggedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''}
+              </Text>
+              <TextInput
+                style={styles.waterAmountInput}
+                value={waterAmountDraft}
+                onChangeText={setWaterAmountDraft}
+                keyboardType="decimal-pad"
+                accessibilityLabel="Water amount"
+                placeholder="Amount in milliliters"
+                placeholderTextColor="#777"
+                autoFocus
+              />
+              <View style={styles.waterModalActions}>
+                <TouchableOpacity
+                  style={styles.waterModalButton}
+                  onPress={() => setEditingWaterLog(null)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel water edit"
+                >
+                  <Text style={styles.waterModalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.waterModalButton, styles.waterModalSaveButton]}
+                  onPress={saveWaterEdit}
+                  disabled={updateWaterMutation.isPending}
+                  accessibilityRole="button"
+                  accessibilityLabel="Save water changes"
+                >
+                  <Text style={styles.waterModalSaveText}>{updateWaterMutation.isPending ? 'Saving...' : 'Save'}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -785,6 +982,144 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600' as const,
     color: '#38bdf8',
+  },
+  waterHistory: {
+    marginTop: 10,
+  },
+  waterHistoryEmpty: {
+    color: '#777',
+    fontSize: 13,
+    paddingTop: 6,
+  },
+  waterHistoryRow: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+  },
+  waterHistoryInfo: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingRight: 8,
+  },
+  waterHistoryAmount: {
+    color: '#dbeafe',
+    fontSize: 14,
+    fontWeight: '600' as const,
+  },
+  waterHistoryTime: {
+    color: '#7d96a6',
+    fontSize: 12,
+  },
+  foodLogRow: {
+    minHeight: 60,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 14,
+    paddingLeft: 14,
+    paddingRight: 6,
+    marginLeft: 56,
+    marginTop: -4,
+    marginBottom: 8,
+  },
+  foodLogDetails: {
+    flex: 1,
+    paddingRight: 8,
+  },
+  foodLogName: {
+    color: '#eee',
+    fontSize: 14,
+    fontWeight: '600' as const,
+  },
+  foodLogMeta: {
+    color: '#888',
+    fontSize: 12,
+    marginTop: 3,
+  },
+  logActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  logActionButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalKeyboard: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  waterModalCard: {
+    backgroundColor: '#17191f',
+    borderRadius: 20,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  waterModalTitle: {
+    color: '#fff',
+    fontSize: 19,
+    fontWeight: '700' as const,
+  },
+  waterModalHint: {
+    color: '#8b9aa8',
+    fontSize: 13,
+    marginTop: 5,
+    marginBottom: 16,
+  },
+  waterAmountInput: {
+    height: 52,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    color: '#fff',
+    paddingHorizontal: 14,
+    fontSize: 17,
+  },
+  waterModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 20,
+  },
+  waterModalButton: {
+    minWidth: 88,
+    minHeight: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  waterModalSaveButton: {
+    backgroundColor: '#2563eb',
+  },
+  waterModalCancelText: {
+    color: '#d1d5db',
+    fontSize: 14,
+    fontWeight: '600' as const,
+  },
+  waterModalSaveText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700' as const,
   },
   mealsSection: {
     marginBottom: 24,
