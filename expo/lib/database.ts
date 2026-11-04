@@ -1957,6 +1957,12 @@ export const fitnessGoalsDb = {
     const result = await database.runAsync('DELETE FROM fitness_goals WHERE id = ? AND userId = ?', [id, userId]);
     if (result?.changes === 0) throw new Error('Fitness goal was not found for the current user');
   },
+
+  async deleteAll(): Promise<void> {
+    const database = await ensureDatabase();
+    const userId = getCurrentUserId() ?? 'guest';
+    await database.runAsync('DELETE FROM fitness_goals WHERE userId = ?', [userId]);
+  },
 };
 
 export const workoutTemplatesDb = {
