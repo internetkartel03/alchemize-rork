@@ -39,7 +39,7 @@ async function readLimitedText(request) {
       if (done) break;
       total += value.byteLength;
       if (total > MAX_BODY_BYTES) {
-        await reader.cancel();
+        try { await reader.cancel(); } catch {}
         throw new BodyTooLargeError();
       }
       chunks.push(value);
