@@ -106,8 +106,12 @@ export default function GoalDetailScreen() {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['goal-completions', id] });
-      queryClient.invalidateQueries({ queryKey: ['goal', id] });
+      void queryClient.invalidateQueries({ queryKey: ['goal-completions', id] });
+      void queryClient.invalidateQueries({ queryKey: ['goal', id] });
+    },
+    onError: (error) => {
+      console.error('[Goals] Completion save failed:', error);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to save goal completion.');
     },
   });
 
@@ -123,7 +127,11 @@ export default function GoalDetailScreen() {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['goal-completions', id] });
+      void queryClient.invalidateQueries({ queryKey: ['goal-completions', id] });
+    },
+    onError: (error) => {
+      console.error('[Goals] Completion removal failed:', error);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to update goal completion.');
     },
   });
 
