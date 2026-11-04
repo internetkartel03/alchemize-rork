@@ -122,9 +122,39 @@ export default function QuickAddScreen() {
     createGoalMutation.isPending ||
     createMealMutation.isPending ||
     createTransactionMutation.isPending ||
+    updateTransactionMutation.isPending ||
     createGratitudeMutation.isPending;
 
   const handleQuickAdd = () => {
+    if (selectedType === 'Transaction') {
+      const amount = Number(transactionAmount);
+      if (!transactionCategory.trim()) {
+        Alert.alert('Missing', 'Please enter a transaction category.');
+        return;
+      }
+      if (!Number.isFinite(amount) || amount <= 0) {
+        Alert.alert('Invalid amount', 'Enter a transaction amount greater than zero.');
+        return;
+      }
+      const now = Date.now();
+      const transaction: Transaction = editingTransaction
+        ? { ...editingTransaction, amount, category: transactionCategory.trim(), note: transactionNote.trim() }
+        : {
+            id: `${now}-${Math.random().toString(36).slice(2, 9)}`,
+            date: now,
+            amount,
+            category: transactionCategory.trim(),
+            note: transactionNote.trim(),
+            dayOfWeek: null,
+            time: null,
+            reminderEnabled: false,
+            reminderTime: null,
+            isRecurring: false,
+          };
+      if (editingTransaction) updateTransactionMutation.mutate(transaction);
+      else createTransactionMutation.mutate(transaction);
+      return;
+    }
     if (!input.trim()) {
       Alert.alert('Error', 'Please enter something');
       return;
@@ -176,18 +206,6 @@ export default function QuickAddScreen() {
         });
         break;
       case 'Transaction':
-        createTransactionMutation.mutate({
-          id: Date.now().toString(),
-          date: Date.now(),
-          amount: 0,
-          category: input.trim(),
-          note: '',
-          dayOfWeek: null,
-          time: null,
-          reminderEnabled: false,
-          reminderTime: null,
-          isRecurring: false,
-        });
         break;
       case 'Gratitude':
         createGratitudeMutation.mutate({
