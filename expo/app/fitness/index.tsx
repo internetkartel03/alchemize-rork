@@ -94,6 +94,15 @@ export default function FitnessHubScreen() {
   const [savingWorkout, setSavingWorkout] = useState(false);
   const queryClient = useQueryClient();
 
+  const refreshWorkoutQueries = async (includeTemplates = false) => {
+    const refreshes = [
+      queryClient.invalidateQueries({ queryKey: ['workoutSessions'] }),
+      queryClient.invalidateQueries({ queryKey: ['todayMetric'] }),
+    ];
+    if (includeTemplates) refreshes.push(queryClient.invalidateQueries({ queryKey: ['workoutTemplates'] }));
+    await Promise.all(refreshes).catch(error => console.warn('[Fitness] Could not refresh workout data:', error));
+  };
+
   const handleSaveGoals = async (targets: FitnessGoalTargets) => {
     setSavingGoals(true);
     try {
@@ -106,9 +115,40 @@ export default function FitnessHubScreen() {
       setGoalsModalVisible(false);
     } catch (error) {
       console.error('[Fitness] Failed to save goals:', error);
+      Alert.alert('Could not save goals', error instanceof Error ? error.message : 'Please try again.');
     } finally {
       setSavingGoals(false);
     }
+  };
+
+  const handleDeleteGoals = () => {
+    if (goals.length === 0) return;
+    Alert.alert(
+      'Remove custom goals?',
+      'Your targets will return to the defaults: 30 active minutes, 500 calories, and 10,000 steps per day.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove Goals',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              setSavingGoals(true);
+              try {
+                await fitnessGoalsDb.deleteAll();
+                await queryClient.invalidateQueries({ queryKey: ['fitnessGoals'] });
+                setGoalsModalVisible(false);
+              } catch (error) {
+                console.error('[Fitness] Failed to remove goals:', error);
+                Alert.alert('Could not remove goals', error instanceof Error ? error.message : 'Please try again.');
+              } finally {
+                setSavingGoals(false);
+              }
+            })();
+          },
+        },
+      ]
+    );
   };
 
   const handleStartWorkout = () => {
