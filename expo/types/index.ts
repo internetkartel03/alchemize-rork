@@ -91,6 +91,7 @@ export interface Transaction {
 
 export interface FinancialIncome {
   id: string;
+  incomeTitle?: string;
   incomeGross: number;
   incomeNet: number;
   taxAmount: number;
