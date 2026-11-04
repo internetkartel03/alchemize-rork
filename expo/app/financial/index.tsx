@@ -666,17 +666,23 @@ export default function FinancialTrackerScreen() {
                 .map((i) => (
                   <View key={i.id} style={styles.dayDetailItem}>
                     <View style={styles.dayDetailLeft}>
-                      <Text style={styles.dayDetailItemTitle}>{i.incomeCategory}</Text>
+                      <Text style={styles.dayDetailItemTitle}>{i.incomeTitle?.trim() || i.incomeCategory}</Text>
+                      <Text style={styles.dayDetailItemCategory}>{i.incomeCategory}</Text>
                       <Text style={[styles.dayDetailItemAmount, styles.greenText]}>{formatCurrency(i.incomeGross)}</Text>
                     </View>
-                    <TouchableOpacity onPress={() => {
-                      Alert.alert('Delete Income', 'Are you sure?', [
-                        { text: 'Cancel', style: 'cancel' },
-                        { text: 'Delete', style: 'destructive', onPress: () => deleteIncomeMutation.mutate(i.id) },
-                      ]);
-                    }}>
-                      <Trash2 size={16} color="#EF4444" />
-                    </TouchableOpacity>
+                    <View style={styles.dayDetailActions}>
+                      <TouchableOpacity style={styles.dayDetailAction} onPress={() => openEditIncome(i)} accessibilityRole="button" accessibilityLabel={`Edit income ${i.incomeTitle?.trim() || i.incomeCategory}`}>
+                        <Edit3 size={16} color="#a78bfa" />
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.dayDetailAction} onPress={() => {
+                        Alert.alert('Delete Income', `Delete "${i.incomeTitle?.trim() || i.incomeCategory}"? This cannot be undone.`, [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Delete', style: 'destructive', onPress: () => deleteIncomeMutation.mutate(i.id) },
+                        ]);
+                      }} accessibilityRole="button" accessibilityLabel={`Delete income ${i.incomeTitle?.trim() || i.incomeCategory}`}>
+                        <Trash2 size={16} color="#EF4444" />
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 ))}
               {incomeData.filter((i) => {
@@ -715,16 +721,22 @@ export default function FinancialTrackerScreen() {
                   <View key={e.id} style={styles.dayDetailItem}>
                     <View style={styles.dayDetailLeft}>
                       <Text style={styles.dayDetailItemTitle}>{e.expenseName}</Text>
+                      <Text style={styles.dayDetailItemCategory}>{e.expenseCategory}</Text>
                       <Text style={[styles.dayDetailItemAmount, styles.redText]}>{formatCurrency(e.expenseAmount)}</Text>
                     </View>
-                    <TouchableOpacity onPress={() => {
-                      Alert.alert('Delete Expense', 'Are you sure?', [
-                        { text: 'Cancel', style: 'cancel' },
-                        { text: 'Delete', style: 'destructive', onPress: () => deleteExpenseMutation.mutate(e.id) },
-                      ]);
-                    }}>
-                      <Trash2 size={16} color="#EF4444" />
-                    </TouchableOpacity>
+                    <View style={styles.dayDetailActions}>
+                      <TouchableOpacity style={styles.dayDetailAction} onPress={() => openEditExpense(e)} accessibilityRole="button" accessibilityLabel={`Edit expense ${e.expenseName}`}>
+                        <Edit3 size={16} color="#a78bfa" />
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.dayDetailAction} onPress={() => {
+                        Alert.alert('Delete Expense', `Delete "${e.expenseName}"? This cannot be undone.`, [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Delete', style: 'destructive', onPress: () => deleteExpenseMutation.mutate(e.id) },
+                        ]);
+                      }} accessibilityRole="button" accessibilityLabel={`Delete expense ${e.expenseName}`}>
+                        <Trash2 size={16} color="#EF4444" />
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 ))}
               {expenseData.filter((e) => {
