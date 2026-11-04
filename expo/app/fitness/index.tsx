@@ -225,6 +225,94 @@ export default function FitnessHubScreen() {
     }
   };
 
+  const handleDeleteWorkout = (session: WorkoutSession) => {
+    if (session.source !== 'manual') return;
+    const workoutTitle = templates.find(template => template.id === session.templateId)?.title ?? 'Manual workout';
+    Alert.alert(
+      'Delete workout?',
+      `Remove "${workoutTitle}" from your workout history? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete Workout',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              setSavingWorkout(true);
+              const warnings: string[] = [];
+              let metric: NormalizedMetric | null = null;
+              let orphanTemplate: WorkoutTemplate | null = null;
+              try {
+                if (session.completed) {
+                  try {
+                    const date = new Date(session.startedAt).toISOString().slice(0, 10);
+                    metric = await normalizedMetricsDb.getByDate(date);
+                  } catch (error) {
+                    console.warn('[Fitness] Could not read workout-day metrics:', error);
+                    warnings.push('The daily total could not be checked or adjusted.');
+                  }
+                }
+                try {
+                  const userSessions = await workoutSessionsDb.getAll();
+                  const isLastManualSession = session.templateId.startsWith('manual-')
+                    && userSessions.filter(item => item.templateId === session.templateId).length === 1;
+                  if (isLastManualSession) orphanTemplate = await workoutTemplatesDb.getById(session.templateId);
+                } catch (error) {
+                  console.warn('[Fitness] Manual workout template was kept:', error);
+                  warnings.push('The quick-log template was kept because its references could not be checked.');
+                }
+
+                await workoutSessionsDb.delete(session.id);
+                if (metric && session.completed) {
+                  if (metric.source === 'workout') {
+                    const minutesDelta = -session.durationMinutes;
+                    const caloriesDelta = -(session.caloriesEstimate ?? 0);
+                    if (metric.activeMinutes + minutesDelta >= 0 && metric.caloriesActive + caloriesDelta >= 0) {
+                      try {
+                        await normalizedMetricsDb.upsert({
+                          id: metric.id,
+                          date: metric.date,
+                          activeMinutes: minutesDelta,
+                          caloriesActive: caloriesDelta,
+                          steps: 0,
+                          source: 'workout',
+                          deviceType: metric.deviceType,
+                        });
+                      } catch (error) {
+                        console.warn('[Fitness] Workout deleted but daily total was not adjusted:', error);
+                        warnings.push('The workout was deleted, but its manual-only daily total could not be adjusted.');
+                      }
+                    } else {
+                      warnings.push('The workout was deleted, but the daily aggregate was left unchanged to avoid a negative total.');
+                    }
+                  } else {
+                    warnings.push('The workout was deleted. Its daily total uses HealthKit data, so that aggregate was left unchanged.');
+                  }
+                }
+                if (orphanTemplate) {
+                  try {
+                    await workoutTemplatesDb.delete(orphanTemplate.id);
+                  } catch (error) {
+                    console.warn('[Fitness] Workout deleted but its unused template was retained:', error);
+                    warnings.push('The workout was deleted, but its unused quick-log template could not be removed.');
+                  }
+                }
+                await refreshWorkoutQueries(Boolean(orphanTemplate));
+                if (editingWorkout?.id === session.id) setEditingWorkout(null);
+                if (warnings.length > 0) Alert.alert('Workout deleted with a note', warnings.join('\n\n'));
+              } catch (error) {
+                console.error('[Fitness] Failed to delete workout:', error);
+                Alert.alert('Could not delete workout', error instanceof Error ? error.message : 'Please try again.');
+              } finally {
+                setSavingWorkout(false);
+              }
+            })();
+          },
+        },
+      ]
+    );
+  };
+
   const handleStartWorkout = () => {
     if (!topWorkout) return;
     router.push(`/fitness/workout?templateId=${topWorkout.id}` as any);
