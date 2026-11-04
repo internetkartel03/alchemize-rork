@@ -1283,43 +1283,57 @@ export const habitsDb = {
   async delete(id: string): Promise<void> {
     const database = await ensureDatabase();
     const userId = getCurrentUserId() ?? 'guest';
-    await database.withTransactionAsync(async () => {
-      await database.runAsync(
-        'DELETE FROM habit_completions WHERE habitId IN (SELECT id FROM habits WHERE id = ? AND userId = ?)',
-        [id, userId]
-      );
-      await database.runAsync('DELETE FROM habits WHERE id = ? AND userId = ?', [id, userId]);
-    });
+    const ownedHabit = await database.getFirstAsync<{ id: string }>(
+      'SELECT id FROM habits WHERE id = ? AND userId = ?',
+      [id, userId]
+    );
+    if (!ownedHabit) return;
+
+    const nativeDatabase = Platform.OS === 'web' ? null : db;
+    if (nativeDatabase) {
+      await nativeDatabase.withTransactionAsync(async () => {
+        await nativeDatabase.runAsync('DELETE FROM habit_completions WHERE habitId = ?', [id]);
+        await nativeDatabase.runAsync('DELETE FROM habits WHERE id = ? AND userId = ?', [id, userId]);
+      });
+      return;
+    }
+
+    const result = await database.runAsync('DELETE FROM habits WHERE id = ? AND userId = ?', [id, userId]);
+    if (result?.changes) {
+      await database.runAsync('DELETE FROM habit_completions WHERE habitId = ?', [id]);
+    }
   },
 };
 
 export const habitCompletionsDb = {
   async getByHabitId(habitId: string): Promise<HabitCompletion[]> {
     const database = await ensureDatabase();
-    const userId = getCurrentUserId() ?? 'guest';
+    const habits = await habitsDb.getAll();
+    if (!habits.some((habit) => habit.id === habitId)) return [];
     return database.getAllAsync<HabitCompletion>(
-      'SELECT completion.* FROM habit_completions AS completion INNER JOIN habits AS habit ON habit.id = completion.habitId WHERE completion.habitId = ? AND habit.userId = ? ORDER BY completion.completedAt DESC',
-      [habitId, userId]
+      'SELECT * FROM habit_completions WHERE habitId = ? ORDER BY completedAt DESC',
+      [habitId]
     );
   },
   
   async getAll(): Promise<HabitCompletion[]> {
     const database = await ensureDatabase();
-    const userId = getCurrentUserId() ?? 'guest';
-    return database.getAllAsync<HabitCompletion>(
-      'SELECT completion.* FROM habit_completions AS completion INNER JOIN habits AS habit ON habit.id = completion.habitId WHERE habit.userId = ? ORDER BY completion.completedAt DESC',
-      [userId]
+    const habits = await habitsDb.getAll();
+    const completionGroups = await Promise.all(
+      habits.map((habit) => database.getAllAsync<HabitCompletion>(
+        'SELECT * FROM habit_completions WHERE habitId = ? ORDER BY completedAt DESC',
+        [habit.id]
+      ))
     );
+    return completionGroups.flat().sort((a, b) => b.completedAt - a.completedAt);
   },
   
   async create(completion: HabitCompletion): Promise<void> {
     const database = await ensureDatabase();
-    const userId = getCurrentUserId() ?? 'guest';
-    const habit = await database.getFirstAsync<{ id: string }>(
-      'SELECT id FROM habits WHERE id = ? AND userId = ?',
-      [completion.habitId, userId]
-    );
-    if (!habit) throw new Error('Habit not found or no longer available.');
+    const habits = await habitsDb.getAll();
+    if (!habits.some((habit) => habit.id === completion.habitId)) {
+      throw new Error('Habit not found or no longer available.');
+    }
     await database.runAsync(
       'INSERT INTO habit_completions (id, habitId, completionDate, value, notes, completedAt) VALUES (?, ?, ?, ?, ?, ?)',
       [completion.id, completion.habitId, completion.completionDate, completion.value, completion.notes, completion.completedAt]
@@ -1328,10 +1342,16 @@ export const habitCompletionsDb = {
   
   async delete(id: string): Promise<void> {
     const database = await ensureDatabase();
-    const userId = getCurrentUserId() ?? 'guest';
+    const completion = await database.getFirstAsync<HabitCompletion>(
+      'SELECT * FROM habit_completions WHERE id = ?',
+      [id]
+    );
+    if (!completion) return;
+    const habits = await habitsDb.getAll();
+    if (!habits.some((habit) => habit.id === completion.habitId)) return;
     await database.runAsync(
-      'DELETE FROM habit_completions WHERE id = ? AND EXISTS (SELECT 1 FROM habits WHERE habits.id = habit_completions.habitId AND habits.userId = ?)',
-      [id, userId]
+      'DELETE FROM habit_completions WHERE id = ? AND habitId = ?',
+      [id, completion.habitId]
     );
   },
 };
