@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, ScrollView, Text, TextInput } from 'react-native';
+import { View, StyleSheet, ScrollView, Text, TextInput, Alert } from 'react-native';
 import { TouchableOpacity } from '@/components/HapticTouchable';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -63,7 +63,11 @@ export default function GoalDetailScreen() {
   const deleteItemMutation = useMutation({
     mutationFn: (itemId: string) => goalChecklistDb.delete(itemId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['goal-checklist', id] });
+      void queryClient.invalidateQueries({ queryKey: ['goal-checklist', id] });
+    },
+    onError: (error) => {
+      console.error('[Goals] Checklist delete error:', error);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to delete checklist item.');
     },
   });
 
@@ -367,8 +371,13 @@ export default function GoalDetailScreen() {
             </TouchableOpacity>
           )}
           <TouchableOpacity
-            onPress={() => deleteItemMutation.mutate(item.id)}
+            onPress={() => Alert.alert('Delete Checklist Item', `Delete "${item.text}"? This cannot be undone.`, [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Delete', style: 'destructive', onPress: () => deleteItemMutation.mutate(item.id) },
+            ])}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityRole="button"
+            accessibilityLabel={`Delete checklist item ${item.text}`}
           >
             <Trash2 color="#ef4444" size={18} />
           </TouchableOpacity>
