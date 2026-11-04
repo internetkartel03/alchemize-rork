@@ -449,7 +449,10 @@ export async function initDatabase(): Promise<SQLite.SQLiteDatabase | null> {
       color TEXT NOT NULL DEFAULT '#6366f1',
       section TEXT NOT NULL DEFAULT 'custom',
       lastCompletedDate TEXT NOT NULL DEFAULT '',
-      createdAt INTEGER NOT NULL
+      createdAt INTEGER NOT NULL,
+      reminderTime TEXT,
+      reminderEnabled INTEGER NOT NULL DEFAULT 0,
+      reminderNotificationId TEXT
     );
     
     CREATE TABLE IF NOT EXISTS habit_completions (
@@ -947,6 +950,22 @@ if (!gratitudeHasReflection) {
       }
     }
     
+    const habitAlarmColumns: { name: string; ddl: string }[] = [
+      { name: 'reminderTime', ddl: 'ALTER TABLE habits ADD COLUMN reminderTime TEXT' },
+      { name: 'reminderEnabled', ddl: 'ALTER TABLE habits ADD COLUMN reminderEnabled INTEGER NOT NULL DEFAULT 0' },
+      { name: 'reminderNotificationId', ddl: 'ALTER TABLE habits ADD COLUMN reminderNotificationId TEXT' },
+    ];
+    for (const column of habitAlarmColumns) {
+      if (await checkColumn('habits', column.name)) continue;
+      console.log(`[Database] Adding ${column.name} column to habits`);
+      try {
+        await database.execAsync(column.ddl);
+        console.log(`[Database] Successfully added ${column.name} column to habits`);
+      } catch (e) {
+        console.log(`[Database] ${column.name} column may already exist:`, e);
+      }
+    }
+
     const nutritionProfileHasFiberTarget = await checkColumn('user_nutrition_profiles', 'dailyFiberTarget');
     if (!nutritionProfileHasFiberTarget) {
       console.log('[Database] Adding dailyFiberTarget column to user_nutrition_profiles');
@@ -1239,6 +1258,7 @@ export const habitsDb = {
     return rows.map(row => ({
       ...row,
       customDays: safeJsonParse(row.customDays, []),
+      reminderEnabled: Boolean(row.reminderEnabled),
     }));
   },
   
@@ -1246,8 +1266,8 @@ export const habitsDb = {
     const database = await ensureDatabase();
     const userId = getCurrentUserId() ?? 'guest';
     await database.runAsync(
-      'INSERT INTO habits (id, userId, name, icon, goal, goalUnit, type, frequencyType, customDays, currentProgress, color, section, lastCompletedDate, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [habit.id, userId, habit.name, habit.icon, habit.goal, habit.goalUnit || null, habit.type, habit.frequencyType, JSON.stringify(habit.customDays), habit.currentProgress, habit.color, habit.section || 'custom', habit.lastCompletedDate, habit.createdAt]
+      'INSERT INTO habits (id, userId, name, icon, goal, goalUnit, type, frequencyType, customDays, currentProgress, color, section, lastCompletedDate, createdAt, reminderTime, reminderEnabled, reminderNotificationId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [habit.id, userId, habit.name, habit.icon, habit.goal, habit.goalUnit || null, habit.type, habit.frequencyType, JSON.stringify(habit.customDays), habit.currentProgress, habit.color, habit.section || 'custom', habit.lastCompletedDate, habit.createdAt, habit.reminderTime || null, habit.reminderEnabled ? 1 : 0, habit.reminderNotificationId || null]
     );
   },
   
@@ -1255,8 +1275,8 @@ export const habitsDb = {
     const database = await ensureDatabase();
     const userId = getCurrentUserId() ?? 'guest';
     await database.runAsync(
-      'UPDATE habits SET name = ?, icon = ?, goal = ?, goalUnit = ?, type = ?, frequencyType = ?, customDays = ?, currentProgress = ?, color = ?, section = ?, lastCompletedDate = ? WHERE id = ? AND userId = ?',
-      [habit.name, habit.icon, habit.goal, habit.goalUnit || null, habit.type, habit.frequencyType, JSON.stringify(habit.customDays), habit.currentProgress, habit.color, habit.section || 'custom', habit.lastCompletedDate, habit.id, userId]
+      'UPDATE habits SET name = ?, icon = ?, goal = ?, goalUnit = ?, type = ?, frequencyType = ?, customDays = ?, currentProgress = ?, color = ?, section = ?, lastCompletedDate = ?, reminderTime = ?, reminderEnabled = ?, reminderNotificationId = ? WHERE id = ? AND userId = ?',
+      [habit.name, habit.icon, habit.goal, habit.goalUnit || null, habit.type, habit.frequencyType, JSON.stringify(habit.customDays), habit.currentProgress, habit.color, habit.section || 'custom', habit.lastCompletedDate, habit.reminderTime || null, habit.reminderEnabled ? 1 : 0, habit.reminderNotificationId || null, habit.id, userId]
     );
   },
   

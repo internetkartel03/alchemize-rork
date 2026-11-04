@@ -32,8 +32,8 @@ import {
   Brain,
   ShieldCheck,
 } from 'lucide-react-native';
-import { generateObject } from '@rork-ai/toolkit-sdk';
 import { z } from 'zod';
+import { generateObject } from '@/lib/ai';
 import { foodLogsDb, appointmentsDb } from '@/lib/db';
 import { calculateFoodTotals, getAutoMealType, getConfidenceLabel, getHealthScoreColor, parseOptionalNumber } from '@/services/calorieAnalysisService';
 import { lookupBarcodeProduct } from '@/services/barcodeLookupService';

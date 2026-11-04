@@ -10,6 +10,7 @@ import * as Haptics from 'expo-haptics';
 import { habitsDb, habitCompletionsDb } from '@/lib/db';
 import type { Habit } from '@/types';
 import { ASSETS } from '@/constants/assets';
+import { formatAlarmTime } from '@/lib/habitAlarms';
 import LoadingState from '@/components/LoadingState';
 import ErrorState from '@/components/ErrorState';
 
@@ -262,6 +263,9 @@ export default function HabitsScreen() {
                 {habit.type === 'counter' && `🔢 ${habit.goal} times`}
                 {habit.type === 'checkbox' && 'Daily task'}
               </Text>
+              {habit.reminderEnabled && habit.reminderTime ? (
+                <Text style={styles.habitAlarmText}>🔔 {formatAlarmTime(habit.reminderTime)}</Text>
+              ) : null}
             </View>
           </View>
         </View>
@@ -629,6 +633,12 @@ const styles = StyleSheet.create({
   habitSubtext: {
     fontSize: 12,
     color: 'rgba(201, 167, 255, 0.6)',
+  },
+  habitAlarmText: {
+    fontSize: 12,
+    fontWeight: '600' as const,
+    color: '#FFD700',
+    marginTop: 2,
   },
   checkboxButton: {
     flexDirection: 'row',
