@@ -1,5 +1,5 @@
 -- Provisional limits: 20 requests per UTC hour and 100 per UTC day per signed-in user.
--- Review these defaults before deployment; this migration is not applied to any database here.
+-- Review these defaults before applying the migration.
 
 create table if not exists public.ai_request_usage (
   user_id uuid primary key references auth.users (id) on delete cascade,
