@@ -414,7 +414,6 @@ export default function FitnessHubScreen() {
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Today&apos;s Progress</Text>
               <TouchableOpacity style={styles.editGoalsButton} onPress={() => setGoalsModalVisible(true)} testID="edit-goals-button">
-              <TouchableOpacity style={styles.editGoalsButton} onPress={() => setGoalsModalVisible(true)} testID="edit-goals-button">
                 <Pencil size={12} color="#10b981" />
                 <Text style={styles.editGoalsText}>Edit Goals</Text>
               </TouchableOpacity>
@@ -506,9 +505,81 @@ export default function FitnessHubScreen() {
         visible={goalsModalVisible}
         initial={{ activeMinutes: activeMinutesGoal, calories: caloriesGoal, steps: stepsGoal }}
         saving={savingGoals}
+        hasCustomGoals={goals.length > 0}
         onClose={() => setGoalsModalVisible(false)}
         onSave={handleSaveGoals}
+        onDelete={handleDeleteGoals}
       />
+      <Modal
+        visible={editingWorkout !== null}
+        animationType="slide"
+        transparent
+        onRequestClose={() => { if (!savingWorkout) setEditingWorkout(null); }}
+      >
+        <Pressable
+          style={styles.workoutModalBackdrop}
+          onPress={() => { if (!savingWorkout) setEditingWorkout(null); }}
+        >
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.workoutModalKeyboard}>
+            <Pressable style={styles.workoutModalSheet} onPress={(event) => event.stopPropagation()}>
+              <View style={styles.workoutModalHeader}>
+                <Text style={styles.workoutModalTitle}>Edit Workout</Text>
+                <TouchableOpacity onPress={() => setEditingWorkout(null)} disabled={savingWorkout} accessibilityRole="button" accessibilityLabel="Close workout editor">
+                  <Text style={styles.workoutModalClose}>Close</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.workoutModalSubtitle}>
+                {editingWorkout ? (templates.find(template => template.id === editingWorkout.templateId)?.title ?? 'Manual workout') : 'Manual workout'}
+                {' '}| Update the duration or calorie estimate.
+              </Text>
+              <View style={styles.workoutModalField}>
+                <Text style={styles.workoutModalLabel}>Duration (minutes)</Text>
+                <TextInput
+                  style={styles.workoutModalInput}
+                  value={durationDraft}
+                  onChangeText={text => setDurationDraft(text.replace(/[^0-9]/g, ''))}
+                  keyboardType="number-pad"
+                  inputMode="numeric"
+                  accessibilityLabel="Workout duration in minutes"
+                  testID="workout-duration-input"
+                />
+              </View>
+              <View style={styles.workoutModalField}>
+                <Text style={styles.workoutModalLabel}>Calories burned (estimate)</Text>
+                <TextInput
+                  style={styles.workoutModalInput}
+                  value={caloriesDraft}
+                  onChangeText={text => setCaloriesDraft(text.replace(/[^0-9]/g, ''))}
+                  keyboardType="number-pad"
+                  inputMode="numeric"
+                  placeholder="Leave blank if unknown"
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                  accessibilityLabel="Workout calories burned estimate"
+                  testID="workout-calories-input"
+                />
+              </View>
+              <View style={styles.workoutModalActions}>
+                <TouchableOpacity
+                  style={styles.workoutModalCancel}
+                  onPress={() => setEditingWorkout(null)}
+                  disabled={savingWorkout}
+                  testID="workout-edit-cancel"
+                >
+                  <Text style={styles.workoutModalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.workoutModalSave, savingWorkout && styles.workoutModalSaveDisabled]}
+                  onPress={handleSaveWorkout}
+                  disabled={savingWorkout}
+                  testID="workout-edit-save"
+                >
+                  <Text style={styles.workoutModalSaveText}>{savingWorkout ? 'Saving...' : 'Save Workout'}</Text>
+                </TouchableOpacity>
+              </View>
+            </Pressable>
+          </KeyboardAvoidingView>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
