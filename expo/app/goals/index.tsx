@@ -52,10 +52,11 @@ export default function GoalsScreen() {
     mutationFn: (id: string) => goalsDb.delete(id),
     onSuccess: () => {
       void invalidateGoals(queryClient);
+      void queryClient.invalidateQueries({ queryKey: ['all-goal-completions'] });
     },
     onError: (error) => {
       console.error('[Goals] Delete error:', error);
-      Alert.alert('Error', 'Failed to delete goal. Please try again.');
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to delete goal. Please try again.');
     },
   });
 
@@ -128,8 +129,13 @@ export default function GoalsScreen() {
             </View>
           </View>
           <TouchableOpacity
-            onPress={() => deleteMutation.mutate(item.id)}
+            onPress={() => Alert.alert('Delete Goal', `Delete "${item.title}" and its checklist and completion history? This cannot be undone.`, [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Delete', style: 'destructive', onPress: () => deleteMutation.mutate(item.id) },
+            ])}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityRole="button"
+            accessibilityLabel={`Delete goal ${item.title}`}
           >
             <Trash2 color="#ef4444" size={20} />
           </TouchableOpacity>
