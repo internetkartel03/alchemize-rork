@@ -15,6 +15,7 @@ import {
 } from 'lucide-react-native';
 import { foodLogsDb } from '@/lib/db/food';
 import { appointmentsDb } from '@/lib/db/appointments';
+import { sendFoodLogToAppleHealth } from '@/lib/healthkit';
 import type { FoodLog, MealType, Appointment } from '@/types';
 
 const MEAL_TYPES: { value: MealType; label: string; icon: string; color: string }[] = [
@@ -85,7 +86,9 @@ export default function AddMealScreen() {
       await appointmentsDb.create(calendarEvent);
       
       const updatedFoodLog = { ...foodLog, calendarEventId };
-      return foodLogsDb.create(updatedFoodLog);
+      await foodLogsDb.create(updatedFoodLog);
+      // Mirror the logged food to Apple Health when the user has it on.
+      await sendFoodLogToAppleHealth(updatedFoodLog);
     },
     onSuccess: () => {
       invalidateFoodLogs(queryClient);

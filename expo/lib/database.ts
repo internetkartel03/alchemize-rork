@@ -1467,6 +1467,16 @@ export const foodLogsDb = {
       isLocked: Boolean(row.isLocked),
     }));
   },
+
+  async getById(id: string): Promise<FoodLog | null> {
+    const database = await ensureDatabase();
+    const row = await database.getFirstAsync<any>('SELECT * FROM food_logs WHERE id = ?', [id]);
+    if (!row) return null;
+    return {
+      ...row,
+      isLocked: Boolean(row.isLocked),
+    };
+  },
   
   async create(log: FoodLog): Promise<void> {
     const database = await ensureDatabase();

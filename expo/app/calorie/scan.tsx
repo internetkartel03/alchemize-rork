@@ -19,6 +19,7 @@ import {
   ShieldCheck,
 } from 'lucide-react-native';
 import { foodLogsDb, appointmentsDb } from '@/lib/db';
+import { sendFoodLogToAppleHealth } from '@/lib/healthkit';
 import { getAutoMealType, parseOptionalNumber } from '@/services/calorieAnalysisService';
 import { lookupBarcodeProduct } from '@/services/barcodeLookupService';
 import type { FoodLog, MealType, Appointment } from '@/types';
@@ -130,7 +131,10 @@ export default function FoodBarcodeScannerScreen() {
       };
 
       await appointmentsDb.create(calendarEvent);
-      await foodLogsDb.create({ ...log, calendarEventId });
+      const savedLog = { ...log, calendarEventId };
+      await foodLogsDb.create(savedLog);
+      // Mirror the scanned food to Apple Health when the user has it on.
+      await sendFoodLogToAppleHealth(savedLog);
       return log;
     },
     onSuccess: () => {

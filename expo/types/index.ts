@@ -146,7 +146,7 @@ export interface FoodLog {
   sugarGrams: number | null;
   fiberGrams: number | null;
   mealType: 'breakfast' | 'lunch' | 'dinner' | 'snack';
-  sourceType: 'manual' | 'camera' | 'saved_food' | 'barcode';
+  sourceType: 'manual' | 'camera' | 'saved_food' | 'barcode' | 'health';
   loggedAt: number;
   isLocked: boolean;
   calendarEventId: string | null;

@@ -836,7 +836,7 @@ export default function SettingsScreen() {
                   : appleHealthEnabled
                     ? `On • ${formatLastSync(healthKitLastSync)} — tap to sync`
                     : isHealthKitSupported().supported
-                      ? 'Sync workouts both ways'
+                      ? 'Sync workouts & nutrition both ways'
                       : 'Available in the iPhone app'}
               </Text>
             </View>

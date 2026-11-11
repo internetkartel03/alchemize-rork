@@ -6,28 +6,57 @@ import {
   isHealthDataAvailable,
   requestAuthorization,
   queryWorkoutSamples,
+  queryQuantitySamples,
   saveWorkoutSample,
+  saveQuantitySample,
 } from '@kingstinct/react-native-healthkit';
-import type { WorkoutSession } from '@/types';
+import type { FoodLog, WaterLog, WorkoutSession } from '@/types';
 
 const ENABLED_KEY = '@alchemize_apple_health_enabled';
 const LAST_SYNC_KEY = '@alchemize_apple_health_last_sync';
 const SENT_KEY = '@alchemize_apple_health_sent';
+const NUTRITION_SENT_KEY = '@alchemize_apple_health_nutrition_sent';
 
 const ACTIVE_ENERGY_IDENTIFIER = 'HKQuantityTypeIdentifierActiveEnergyBurned' as const;
+
+const DIETARY_ENERGY_IDENTIFIER = 'HKQuantityTypeIdentifierDietaryEnergyConsumed' as const;
+const DIETARY_PROTEIN_IDENTIFIER = 'HKQuantityTypeIdentifierDietaryProtein' as const;
+const DIETARY_CARBS_IDENTIFIER = 'HKQuantityTypeIdentifierDietaryCarbohydrates' as const;
+const DIETARY_FAT_IDENTIFIER = 'HKQuantityTypeIdentifierDietaryFatTotal' as const;
+const DIETARY_SUGAR_IDENTIFIER = 'HKQuantityTypeIdentifierDietarySugar' as const;
+const DIETARY_FIBER_IDENTIFIER = 'HKQuantityTypeIdentifierDietaryFiber' as const;
+const DIETARY_WATER_IDENTIFIER = 'HKQuantityTypeIdentifierDietaryWater' as const;
+
+const DIETARY_IDENTIFIERS = [
+  DIETARY_ENERGY_IDENTIFIER,
+  DIETARY_PROTEIN_IDENTIFIER,
+  DIETARY_CARBS_IDENTIFIER,
+  DIETARY_FAT_IDENTIFIER,
+  DIETARY_SUGAR_IDENTIFIER,
+  DIETARY_FIBER_IDENTIFIER,
+  DIETARY_WATER_IDENTIFIER,
+];
+
+const HEALTHKIT_READ_TYPES = [ACTIVE_ENERGY_IDENTIFIER, WorkoutTypeIdentifier, ...DIETARY_IDENTIFIERS];
+const HEALTHKIT_SHARE_TYPES = [ACTIVE_ENERGY_IDENTIFIER, WorkoutTypeIdentifier, ...DIETARY_IDENTIFIERS];
+
 const APP_BUNDLE_ID = 'app.repo.alchemize-level-up';
 const IMPORT_DAYS = 7;
+const MINUTE_MS = 60_000;
+const ML_PER_OUNCE = 29.5735;
 
 export interface AppleHealthSyncResult {
   success: boolean;
   imported: number;
   sent: number;
+  nutritionImported: number;
+  nutritionSent: number;
   message: string;
 }
 
 /**
  * Apple Health is a single switch: turning it on asks for read + write access and
- * keeps both sides in sync (Alchemize workouts out, HealthKit workouts in).
+ * keeps both sides in sync — workouts and nutrition out, HealthKit data in.
  */
 export function isHealthKitSupported(): { supported: boolean; reason: string } {
   if (Platform.OS === 'web') {
@@ -83,21 +112,18 @@ async function setLastSyncTime(time: string): Promise<void> {
 export async function connectAppleHealth(): Promise<AppleHealthSyncResult> {
   const { supported, reason } = isHealthKitSupported();
   if (!supported) {
-    return { success: false, imported: 0, sent: 0, message: reason };
+    return emptyResult(reason);
   }
 
   const granted = await requestAuthorization({
-    toRead: [ACTIVE_ENERGY_IDENTIFIER, WorkoutTypeIdentifier],
-    toShare: [ACTIVE_ENERGY_IDENTIFIER, WorkoutTypeIdentifier],
+    toRead: HEALTHKIT_READ_TYPES,
+    toShare: HEALTHKIT_SHARE_TYPES,
   });
 
   if (!granted) {
-    return {
-      success: false,
-      imported: 0,
-      sent: 0,
-      message: 'Apple Health access was not granted. You can change this in the Health app.',
-    };
+    return emptyResult(
+      'Apple Health access was not granted. You can change this in the Health app.'
+    );
   }
 
   await AsyncStorage.setItem(ENABLED_KEY, '1');
@@ -114,26 +140,30 @@ export async function disconnectAppleHealth(): Promise<void> {
   }
 }
 
-/** Both directions in one call: send new Alchemize workouts out, pull HealthKit ones in. */
+/** Both directions in one call: send new Alchemize data out, pull HealthKit data in. */
 export async function syncWithAppleHealth(): Promise<AppleHealthSyncResult> {
   if (!(await isAppleHealthEnabled())) {
-    return { success: false, imported: 0, sent: 0, message: 'Apple Health is off.' };
+    return emptyResult('Apple Health is off.');
   }
 
   try {
     const sent = await sendWorkoutsToHealth();
     const imported = await pullWorkoutsFromHealth();
+    const nutritionSent = await sendNutritionToHealth();
+    const nutritionImported = await pullNutritionFromHealth();
     await setLastSyncTime(new Date().toISOString());
 
     return {
       success: true,
       imported,
       sent,
-      message: buildMessage(imported, sent),
+      nutritionImported,
+      nutritionSent,
+      message: buildMessage(imported, sent, nutritionImported, nutritionSent),
     };
   } catch (error) {
     console.error('[AppleHealth] Sync failed:', error);
-    return { success: false, imported: 0, sent: 0, message: 'Could not sync with Apple Health.' };
+    return emptyResult('Could not sync with Apple Health.');
   }
 }
 
@@ -148,7 +178,7 @@ export async function sendWorkoutToAppleHealth(session: WorkoutSession): Promise
   if (!(await isAppleHealthEnabled())) return;
 
   try {
-    const sent = await getSentIds();
+    const sent = await getSentIds(SENT_KEY);
     if (sent.has(session.id)) return;
     await saveSession(session);
     await markSent(session.id, sent);
@@ -158,28 +188,64 @@ export async function sendWorkoutToAppleHealth(session: WorkoutSession): Promise
   }
 }
 
-function buildMessage(imported: number, sent: number): string {
+/** Sends a single just-logged food to Apple Health (no-op when the switch is off). */
+export async function sendFoodLogToAppleHealth(log: FoodLog): Promise<void> {
+  if (!(await isAppleHealthEnabled())) return;
+
+  try {
+    const sent = await getSentIds(NUTRITION_SENT_KEY);
+    const key = `food_${log.id}`;
+    if (sent.has(key)) return;
+    await saveFoodLog(log);
+    await markSent(key, sent, NUTRITION_SENT_KEY);
+    await setLastSyncTime(new Date().toISOString());
+  } catch (error) {
+    console.error('[AppleHealth] Could not send food log:', error);
+  }
+}
+
+function emptyResult(message: string): AppleHealthSyncResult {
+  return {
+    success: false,
+    imported: 0,
+    sent: 0,
+    nutritionImported: 0,
+    nutritionSent: 0,
+    message,
+  };
+}
+
+function buildMessage(
+  imported: number,
+  sent: number,
+  nutritionImported: number,
+  nutritionSent: number
+): string {
   const parts: string[] = [];
   if (sent > 0) parts.push(`sent ${sent} workout${sent === 1 ? '' : 's'}`);
   if (imported > 0) parts.push(`brought in ${imported} workout${imported === 1 ? '' : 's'}`);
+  if (nutritionSent > 0) parts.push(`sent ${nutritionSent} nutrition entr${nutritionSent === 1 ? 'y' : 'ies'}`);
+  if (nutritionImported > 0) {
+    parts.push(`brought in ${nutritionImported} nutrition entr${nutritionImported === 1 ? 'y' : 'ies'}`);
+  }
   if (parts.length === 0) return 'Everything is up to date';
   return `Synced: ${parts.join(', ')}`;
 }
 
-async function getSentIds(): Promise<Set<string>> {
+async function getSentIds(key: string): Promise<Set<string>> {
   try {
-    const stored = await AsyncStorage.getItem(SENT_KEY);
+    const stored = await AsyncStorage.getItem(key);
     return new Set<string>(stored ? (JSON.parse(stored) as string[]) : []);
   } catch {
     return new Set<string>();
   }
 }
 
-async function markSent(id: string, sent: Set<string>): Promise<void> {
+async function markSent(id: string, sent: Set<string>, key: string = SENT_KEY): Promise<void> {
   sent.add(id);
   // Keep only the most recent ids so the stored list cannot grow forever.
   const trimmed = Array.from(sent).slice(-500);
-  await AsyncStorage.setItem(SENT_KEY, JSON.stringify(trimmed));
+  await AsyncStorage.setItem(key, JSON.stringify(trimmed));
 }
 
 // ── Sending Alchemize workouts to Apple Health ──────────────────────────────
@@ -196,7 +262,7 @@ const CATEGORY_ACTIVITY_TYPE: Record<string, WorkoutActivityType> = {
 };
 
 async function sendWorkoutsToHealth(): Promise<number> {
-  const sent = await getSentIds();
+  const sent = await getSentIds(SENT_KEY);
   const { workoutSessionsDb, workoutTemplatesDb } = await import('./database');
 
   const [sessions, templates] = await Promise.all([
@@ -292,4 +358,130 @@ async function pullWorkoutsFromHealth(): Promise<number> {
   return imported;
 }
 
+// ── Sending Alchemize nutrition to Apple Health ─────────────────────────────
 
+async function sendNutritionToHealth(): Promise<number> {
+  const sent = await getSentIds(NUTRITION_SENT_KEY);
+  const { foodLogsDb, waterLogsDb } = await import('./database');
+
+  const [foodLogs, waterLogs] = await Promise.all([foodLogsDb.getAll(), waterLogsDb.getAll()]);
+
+  let count = 0;
+  for (const log of foodLogs) {
+    // Entries that came from HealthKit are already there.
+    if (log.id.startsWith('healthkit_')) continue;
+
+    const key = `food_${log.id}`;
+    if (sent.has(key)) continue;
+
+    await saveFoodLog(log);
+    await markSent(key, sent, NUTRITION_SENT_KEY);
+    count++;
+  }
+
+  for (const log of waterLogs) {
+    const key = `water_${log.id}`;
+    if (sent.has(key)) continue;
+
+    await saveWaterLog(log);
+    await markSent(key, sent, NUTRITION_SENT_KEY);
+    count++;
+  }
+
+  return count;
+}
+
+async function saveFoodLog(log: FoodLog): Promise<void> {
+  const startDate = new Date(log.loggedAt);
+  const endDate = new Date(log.loggedAt + MINUTE_MS);
+
+  if (log.calories > 0) {
+    await saveQuantitySample(DIETARY_ENERGY_IDENTIFIER, 'kcal', log.calories, startDate, endDate);
+  }
+  if (log.proteinGrams) {
+    await saveQuantitySample(DIETARY_PROTEIN_IDENTIFIER, 'g', log.proteinGrams, startDate, endDate);
+  }
+  if (log.carbGrams) {
+    await saveQuantitySample(DIETARY_CARBS_IDENTIFIER, 'g', log.carbGrams, startDate, endDate);
+  }
+  if (log.fatGrams) {
+    await saveQuantitySample(DIETARY_FAT_IDENTIFIER, 'g', log.fatGrams, startDate, endDate);
+  }
+  if (log.sugarGrams) {
+    await saveQuantitySample(DIETARY_SUGAR_IDENTIFIER, 'g', log.sugarGrams, startDate, endDate);
+  }
+  if (log.fiberGrams) {
+    await saveQuantitySample(DIETARY_FIBER_IDENTIFIER, 'g', log.fiberGrams, startDate, endDate);
+  }
+}
+
+async function saveWaterLog(log: WaterLog): Promise<void> {
+  const milliliters = log.unit === 'oz' ? log.amount * ML_PER_OUNCE : log.amount;
+  if (milliliters <= 0) return;
+
+  const startDate = new Date(log.loggedAt);
+  const endDate = new Date(log.loggedAt + MINUTE_MS);
+  await saveQuantitySample(DIETARY_WATER_IDENTIFIER, 'mL', milliliters, startDate, endDate);
+}
+
+// ── Bringing HealthKit nutrition into Alchemize ─────────────────────────────
+
+const MEAL_TYPES: FoodLog['mealType'][] = ['breakfast', 'lunch', 'dinner', 'snack'];
+const MEAL_HOURS: Record<FoodLog['mealType'], number> = {
+  breakfast: 8,
+  lunch: 12,
+  dinner: 18,
+  snack: 15,
+};
+
+async function pullNutritionFromHealth(): Promise<number> {
+  const endDate = new Date();
+  const startDate = new Date(endDate.getTime() - IMPORT_DAYS * 24 * 60 * 60 * 1000);
+
+  const samples = await queryQuantitySamples(DIETARY_ENERGY_IDENTIFIER, {
+    filter: { date: { startDate, endDate } },
+    limit: 0,
+    ascending: false,
+    unit: 'kcal',
+  });
+
+  const { foodLogsDb } = await import('./database');
+
+  let imported = 0;
+  for (const sample of samples) {
+    // Nutrition Alchemize already sent to Apple Health is already in the app.
+    if (sample.sourceRevision?.source?.bundleIdentifier === APP_BUNDLE_ID) continue;
+
+    const id = `healthkit_nutrition_${sample.uuid}`;
+    if (await foodLogsDb.getById(id)) continue;
+
+    await foodLogsDb.create({
+      id,
+      foodName: 'Apple Health entry',
+      servingDescription: 'Synced from Apple Health',
+      calories: Math.round(sample.quantity),
+      proteinGrams: null,
+      carbGrams: null,
+      fatGrams: null,
+      sugarGrams: null,
+      fiberGrams: null,
+      mealType: mealTypeFor(sample.startDate),
+      sourceType: 'health',
+      loggedAt: sample.startDate.getTime(),
+      isLocked: false,
+      calendarEventId: null,
+    });
+
+    imported++;
+  }
+
+  return imported;
+}
+
+/** Picks the closest meal for a HealthKit sample that only carries a timestamp. */
+function mealTypeFor(date: Date): FoodLog['mealType'] {
+  const hour = date.getHours();
+  return MEAL_TYPES.reduce((closest, type) =>
+    Math.abs(MEAL_HOURS[type] - hour) < Math.abs(MEAL_HOURS[closest] - hour) ? type : closest
+  );
+}
