@@ -17,6 +17,20 @@ import {
   markActiveDay,
 } from '@/lib/fitness';
 import { usePedometer } from '@/hooks/use-pedometer';
+/**
+ * Keeps a ring's number short enough to fit its circle: Apple Health can hand
+ * back large or fractional totals (12,483 steps, 431.9 cal), which would
+ * overflow the ring and get clipped. Thousands are abbreviated ("12.5k").
+ */
+function formatRingNumber(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '0';
+  const rounded = Math.round(value);
+  if (rounded < 1000) return String(rounded);
+  const thousands = rounded / 1000;
+  const short = thousands.toFixed(thousands >= 10 ? 0 : 1).replace(/\.0$/, '');
+  return `${short}k`;
+}
+
 export default function FitnessHubScreen() {
   const router = useRouter();
 
@@ -112,12 +126,22 @@ export default function FitnessHubScreen() {
   };
 
   const renderProgressRing = (value: number, goal: number, color: string, label: string) => {
+    const displayValue = formatRingNumber(value);
     return (
       <View style={styles.progressRing}>
         <View style={styles.ringOuter}>
           <View style={[styles.ringInner, { borderColor: color, borderWidth: 6 }]}>
-            <Text style={styles.ringValue}>{value}</Text>
-            <Text style={styles.ringGoal}>/ {goal}</Text>
+            <Text
+              style={[styles.ringValue, displayValue.length > 4 && styles.ringValueCompact]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+            >
+              {displayValue}
+            </Text>
+            <Text style={styles.ringGoal} numberOfLines={1}>
+              / {formatRingNumber(goal)}
+            </Text>
           </View>
         </View>
         <Text style={styles.ringLabel}>{label}</Text>
@@ -336,6 +360,9 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700' as const,
     color: '#fff',
+  },
+  ringValueCompact: {
+    fontSize: 15,
   },
   ringGoal: {
     fontSize: 12,

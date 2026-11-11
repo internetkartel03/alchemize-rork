@@ -150,6 +150,19 @@ export default function AuthScreen() {
     return true;
   };
 
+  const handleAppleSignIn = async () => {
+    setAppleLoading(true);
+    setError('');
+    const result = await loginWithApple();
+    setAppleLoading(false);
+    if (result.success) {
+      // On the web Supabase redirects to Apple, so the page is already leaving.
+      if (!result.redirecting) router.replace('/');
+    } else if (result.error && result.error !== 'Sign in was cancelled') {
+      setError(result.error);
+    }
+  };
+
   const handleAuth = async () => {
     if (!requireTerms()) return;
     if (!email || !password) {
@@ -414,26 +427,28 @@ export default function AuthScreen() {
                       buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
                       cornerRadius={10}
                       style={styles.appleNativeBtn}
-                      onPress={async () => {
-                        setAppleLoading(true);
-                        setError('');
-                        const result = await loginWithApple();
-                        setAppleLoading(false);
-                        if (result.success) {
-                          router.replace('/');
-                        } else if (result.error && result.error !== 'Sign in was cancelled') {
-                          setError(result.error);
-                        }
-                      }}
+                      onPress={handleAppleSignIn}
                     />
                   )}
                 </View>
               )}
 
               {showAppleWeb && (
-                <TouchableOpacity style={styles.socialBtn} activeOpacity={0.8} disabled>
-                  <Text style={styles.appleIcon}></Text>
-                  <Text style={styles.socialLabel}>{t.signInWithApple}</Text>
+                <TouchableOpacity
+                  style={styles.socialBtn}
+                  activeOpacity={0.8}
+                  onPress={handleAppleSignIn}
+                  disabled={appleLoading}
+                  testID="apple-sign-in"
+                >
+                  {appleLoading ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <>
+                      <Text style={styles.appleIcon}></Text>
+                      <Text style={styles.socialLabel}>{t.signInWithApple}</Text>
+                    </>
+                  )}
                 </TouchableOpacity>
               )}
             </View>

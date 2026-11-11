@@ -379,7 +379,29 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       console.log('[Auth] Starting Apple Sign In...');
 
       if (Platform.OS === 'web') {
-        return { success: false, error: 'Apple Sign In is not available on web' };
+        // There is no native Apple sheet on the web, so use Supabase's Apple
+        // OAuth redirect flow. The browser leaves for Apple's page and the
+        // session is picked up from the URL by detectSessionInUrl on return.
+        const supabase = getSupabase();
+        const redirectTo =
+          typeof window !== 'undefined' ? `${window.location.origin}/` : undefined;
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: 'apple',
+          options: redirectTo ? { redirectTo } : undefined,
+        });
+
+        if (error) {
+          console.error('[Auth] Supabase Apple OAuth error:', error);
+          const notConfigured = /provider is not enabled|unsupported provider/i.test(error.message || '');
+          return {
+            success: false,
+            error: notConfigured
+              ? 'Apple Sign In is not set up yet. Enable the Apple provider in Supabase (Auth → Providers) with your Apple Developer credentials.'
+              : friendlyAuthError(error.message) || 'Apple Sign In failed',
+          };
+        }
+
+        return { success: true, redirecting: true };
       }
 
       const isAvailable = await AppleAuthentication.isAvailableAsync();
@@ -414,9 +436,12 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
       if (error || !data.session) {
         console.error('[Auth] Supabase Apple Sign In error:', error);
+        const notConfigured = /provider is not enabled|unsupported provider/i.test(error?.message || '');
         return {
           success: false,
-          error: friendlyAuthError(error?.message) || 'Apple Sign In failed',
+          error: notConfigured
+            ? 'Apple Sign In is not set up yet. Enable the Apple provider in Supabase (Auth → Providers) with your Apple Developer credentials.'
+            : friendlyAuthError(error?.message) || 'Apple Sign In failed',
         };
       }
 
