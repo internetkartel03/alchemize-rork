@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { generateObject } from '@/lib/ai';
 import { workoutTemplatesDb, workoutSessionsDb, normalizedMetricsDb } from '@/lib/db/fitness';
 import { estimateCalories } from '@/lib/fitness';
+import { sendWorkoutToAppleHealth } from '@/lib/healthkit';
 import type { WorkoutSession, WorkoutTemplate } from '@/types';
 
 const CalorieEstimateSchema = z.object({
@@ -112,6 +113,9 @@ export default function AddWorkoutScreen() {
           deviceType: 'none',
         });
       }
+
+      // Mirror the finished workout to Apple Health when the user has it on.
+      await sendWorkoutToAppleHealth(session);
 
       return session;
     },

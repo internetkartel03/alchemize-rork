@@ -8,6 +8,7 @@ import * as Haptics from 'expo-haptics';
 import { workoutTemplatesDb, workoutSessionsDb, normalizedMetricsDb } from '@/lib/db/fitness';
 import { estimateCalories } from '@/lib/fitness';
 import { playCompletionChime } from '@/lib/sound';
+import { sendWorkoutToAppleHealth } from '@/lib/healthkit';
 import type { WorkoutSession } from '@/types';
 
 export default function WorkoutScreen() {
@@ -112,6 +113,9 @@ export default function WorkoutScreen() {
           deviceType: 'none',
         });
       }
+
+      // Mirror the finished workout to Apple Health when the user has it on.
+      await sendWorkoutToAppleHealth(session);
 
       return session;
     },

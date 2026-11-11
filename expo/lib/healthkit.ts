@@ -6,106 +6,41 @@ import {
   isHealthDataAvailable,
   requestAuthorization,
   queryWorkoutSamples,
-  queryStatisticsForQuantity,
-  type WorkoutProxyTyped,
+  saveWorkoutSample,
 } from '@kingstinct/react-native-healthkit';
+import type { WorkoutSession } from '@/types';
 
-const HEALTHKIT_PERMISSIONS_KEY = '@alchemize_healthkit_permissions';
-const HEALTHKIT_LAST_SYNC_KEY = '@alchemize_healthkit_last_sync';
+const ENABLED_KEY = '@alchemize_apple_health_enabled';
+const LAST_SYNC_KEY = '@alchemize_apple_health_last_sync';
+const SENT_KEY = '@alchemize_apple_health_sent';
 
 const ACTIVE_ENERGY_IDENTIFIER = 'HKQuantityTypeIdentifierActiveEnergyBurned' as const;
-const EXERCISE_TIME_IDENTIFIER = 'HKQuantityTypeIdentifierAppleExerciseTime' as const;
+const APP_BUNDLE_ID = 'app.repo.alchemize-level-up';
+const IMPORT_DAYS = 7;
 
-export type HealthKitPermissionStatus = 'notDetermined' | 'authorized' | 'denied' | 'unavailable';
-
-export interface HealthKitPermissions {
-  activeEnergy: HealthKitPermissionStatus;
-  workouts: HealthKitPermissionStatus;
-  exerciseMinutes: HealthKitPermissionStatus;
-  overallStatus: HealthKitPermissionStatus;
-  lastUpdated: string | null;
+export interface AppleHealthSyncResult {
+  success: boolean;
+  imported: number;
+  sent: number;
+  message: string;
 }
 
-export interface HealthKitWorkout {
-  id: string;
-  workoutType: string;
-  startDate: string;
-  endDate: string;
-  duration: number;
-  caloriesBurned: number | null;
-  source: 'apple_health' | 'manual' | 'estimated';
-  sourceName: string;
-  isEstimated: boolean;
-}
-
-export interface HealthKitActivityData {
-  date: string;
-  activeEnergyBurned: number;
-  exerciseMinutes: number;
-  workouts: HealthKitWorkout[];
-}
-
-const DEFAULT_PERMISSIONS: HealthKitPermissions = {
-  activeEnergy: 'notDetermined',
-  workouts: 'notDetermined',
-  exerciseMinutes: 'notDetermined',
-  overallStatus: 'notDetermined',
-  lastUpdated: null,
-};
-
-// Apple's readable enum keys ("running", "traditionalStrengthTraining", ...) already map
-// closely to display names; only a handful need manual relabeling.
-const WORKOUT_TYPE_LABEL_OVERRIDES: Partial<Record<keyof typeof WorkoutActivityType, string>> = {
-  traditionalStrengthTraining: 'Strength Training',
-  functionalStrengthTraining: 'Functional Training',
-  highIntensityIntervalTraining: 'HIIT',
-  crossTraining: 'Cross Training',
-  danceInspiredTraining: 'Dance',
-  mixedMetabolicCardioTraining: 'Mixed Cardio',
-};
-
-function formatWorkoutActivityType(type: WorkoutActivityType): string {
-  const key = WorkoutActivityType[type] as keyof typeof WorkoutActivityType | undefined;
-  if (!key) return 'Workout';
-  if (WORKOUT_TYPE_LABEL_OVERRIDES[key]) return WORKOUT_TYPE_LABEL_OVERRIDES[key]!;
-  const spaced = key.replace(/([a-z])([A-Z])/g, '$1 $2');
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
-}
-
-function mapWorkout(workout: WorkoutProxyTyped): HealthKitWorkout {
-  const durationMinutes = Math.round(workout.duration.quantity);
-  const calories = workout.totalEnergyBurned ? Math.round(workout.totalEnergyBurned.quantity) : null;
-  const sourceName = workout.sourceRevision?.source?.name ?? 'Apple Health';
-
-  return {
-    id: workout.uuid,
-    workoutType: formatWorkoutActivityType(workout.workoutActivityType),
-    startDate: workout.startDate.toISOString(),
-    endDate: workout.endDate.toISOString(),
-    duration: durationMinutes,
-    caloriesBurned: calories,
-    source: 'apple_health',
-    sourceName,
-    isEstimated: false,
-  };
-}
-
-export function isHealthKitAvailable(): boolean {
-  return Platform.OS === 'ios' && isHealthDataAvailable();
-}
-
+/**
+ * Apple Health is a single switch: turning it on asks for read + write access and
+ * keeps both sides in sync (Alchemize workouts out, HealthKit workouts in).
+ */
 export function isHealthKitSupported(): { supported: boolean; reason: string } {
   if (Platform.OS === 'web') {
     return {
       supported: false,
-      reason: 'HealthKit is not available on web. Use the mobile app to sync wearable data.',
+      reason: 'Apple Health only works in the iPhone app.',
     };
   }
 
   if (Platform.OS === 'android') {
     return {
       supported: false,
-      reason: 'Apple Health is only available on iOS devices.',
+      reason: 'Apple Health is only available on iPhone.',
     };
   }
 
@@ -116,236 +51,236 @@ export function isHealthKitSupported(): { supported: boolean; reason: string } {
     };
   }
 
-  return {
-    supported: true,
-    reason: 'HealthKit is available on this device.',
-  };
+  return { supported: true, reason: 'Apple Health is available.' };
 }
 
-export async function getStoredPermissions(): Promise<HealthKitPermissions> {
+export async function isAppleHealthEnabled(): Promise<boolean> {
   try {
-    const stored = await AsyncStorage.getItem(HEALTHKIT_PERMISSIONS_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored) as HealthKitPermissions;
-      console.log('[HealthKit] Loaded stored permissions:', parsed.overallStatus);
-      return parsed;
-    }
-  } catch (error) {
-    console.error('[HealthKit] Error loading permissions:', error);
+    if (!isHealthKitSupported().supported) return false;
+    return (await AsyncStorage.getItem(ENABLED_KEY)) === '1';
+  } catch {
+    return false;
   }
-  return DEFAULT_PERMISSIONS;
-}
-
-export async function savePermissions(permissions: HealthKitPermissions): Promise<void> {
-  try {
-    await AsyncStorage.setItem(HEALTHKIT_PERMISSIONS_KEY, JSON.stringify(permissions));
-    console.log('[HealthKit] Permissions saved:', permissions.overallStatus);
-  } catch (error) {
-    console.error('[HealthKit] Error saving permissions:', error);
-  }
-}
-
-export async function requestHealthKitPermissions(): Promise<HealthKitPermissions> {
-  console.log('[HealthKit] Requesting permissions...');
-
-  const { supported, reason } = isHealthKitSupported();
-
-  if (!supported) {
-    console.log('[HealthKit] Not supported:', reason);
-    const unavailablePermissions: HealthKitPermissions = {
-      activeEnergy: 'unavailable',
-      workouts: 'unavailable',
-      exerciseMinutes: 'unavailable',
-      overallStatus: 'unavailable',
-      lastUpdated: new Date().toISOString(),
-    };
-    await savePermissions(unavailablePermissions);
-    return unavailablePermissions;
-  }
-
-  // HealthKit deliberately never reports whether the user actually granted READ access
-  // (only write/share access is queryable) — the presented sheet completing without error
-  // is the only signal available, per Apple's privacy design.
-  const requested = await requestAuthorization({
-    toRead: [ACTIVE_ENERGY_IDENTIFIER, EXERCISE_TIME_IDENTIFIER, WorkoutTypeIdentifier],
-  });
-
-  const status: HealthKitPermissionStatus = requested ? 'authorized' : 'denied';
-  const permissions: HealthKitPermissions = {
-    activeEnergy: status,
-    workouts: status,
-    exerciseMinutes: status,
-    overallStatus: status,
-    lastUpdated: new Date().toISOString(),
-  };
-
-  await savePermissions(permissions);
-  console.log('[HealthKit] Permission request completed:', status);
-
-  return permissions;
-}
-
-export async function checkHealthKitPermissions(): Promise<HealthKitPermissions> {
-  const stored = await getStoredPermissions();
-
-  if (stored.overallStatus === 'notDetermined') {
-    return stored;
-  }
-
-  const { supported } = isHealthKitSupported();
-  if (!supported && stored.overallStatus === 'authorized') {
-    return {
-      ...stored,
-      overallStatus: 'unavailable',
-      activeEnergy: 'unavailable',
-      workouts: 'unavailable',
-      exerciseMinutes: 'unavailable',
-    };
-  }
-
-  return stored;
-}
-
-export async function revokeHealthKitPermissions(): Promise<void> {
-  console.log('[HealthKit] Clearing local HealthKit preference...');
-  // HealthKit does not let apps programmatically revoke access — the user must do this in
-  // iOS Settings > Health > Data Access & Devices. This only stops Alchemize from querying.
-  await savePermissions(DEFAULT_PERMISSIONS);
-  await AsyncStorage.removeItem(HEALTHKIT_LAST_SYNC_KEY);
 }
 
 export async function getLastSyncTime(): Promise<string | null> {
   try {
-    return await AsyncStorage.getItem(HEALTHKIT_LAST_SYNC_KEY);
+    return await AsyncStorage.getItem(LAST_SYNC_KEY);
   } catch {
     return null;
   }
 }
 
-export async function setLastSyncTime(time: string): Promise<void> {
+async function setLastSyncTime(time: string): Promise<void> {
   try {
-    await AsyncStorage.setItem(HEALTHKIT_LAST_SYNC_KEY, time);
+    await AsyncStorage.setItem(LAST_SYNC_KEY, time);
   } catch (error) {
-    console.error('[HealthKit] Error saving last sync time:', error);
+    console.error('[AppleHealth] Error saving last sync time:', error);
   }
 }
 
-export async function fetchHealthKitWorkouts(
-  startDate: Date,
-  endDate: Date
-): Promise<HealthKitWorkout[]> {
-  console.log('[HealthKit] Fetching workouts from', startDate.toISOString(), 'to', endDate.toISOString());
-
-  const permissions = await checkHealthKitPermissions();
-  if (permissions.workouts !== 'authorized') {
-    console.log('[HealthKit] Workout permissions not granted');
-    return [];
+/** Turns the switch on: asks for access once, then runs the first sync. */
+export async function connectAppleHealth(): Promise<AppleHealthSyncResult> {
+  const { supported, reason } = isHealthKitSupported();
+  if (!supported) {
+    return { success: false, imported: 0, sent: 0, message: reason };
   }
 
-  try {
-    const workouts = await queryWorkoutSamples({
-      filter: { date: { startDate, endDate } },
-      limit: 0,
-      ascending: false,
-    });
+  const granted = await requestAuthorization({
+    toRead: [ACTIVE_ENERGY_IDENTIFIER, WorkoutTypeIdentifier],
+    toShare: [ACTIVE_ENERGY_IDENTIFIER, WorkoutTypeIdentifier],
+  });
 
-    const mapped = workouts.map(mapWorkout);
-    console.log('[HealthKit] Found', mapped.length, 'workouts');
-    return mapped;
-  } catch (error) {
-    console.error('[HealthKit] Error fetching workouts:', error);
-    return [];
-  }
-}
-
-export async function fetchHealthKitActivity(date: Date): Promise<HealthKitActivityData | null> {
-  console.log('[HealthKit] Fetching activity for', date.toISOString().split('T')[0]);
-
-  const permissions = await checkHealthKitPermissions();
-  if (permissions.overallStatus !== 'authorized') {
-    console.log('[HealthKit] Permissions not granted for activity');
-    return null;
-  }
-
-  const dateStr = date.toISOString().split('T')[0];
-  const dayStart = new Date(date);
-  dayStart.setHours(0, 0, 0, 0);
-  const dayEnd = new Date(dayStart);
-  dayEnd.setDate(dayEnd.getDate() + 1);
-
-  try {
-    const [activeEnergyStats, exerciseStats, workouts] = await Promise.all([
-      queryStatisticsForQuantity(ACTIVE_ENERGY_IDENTIFIER, ['cumulativeSum'], {
-        filter: { date: { startDate: dayStart, endDate: dayEnd } },
-      }),
-      queryStatisticsForQuantity(EXERCISE_TIME_IDENTIFIER, ['cumulativeSum'], {
-        filter: { date: { startDate: dayStart, endDate: dayEnd } },
-      }),
-      fetchHealthKitWorkouts(dayStart, dayEnd),
-    ]);
-
-    return {
-      date: dateStr,
-      activeEnergyBurned: Math.round(activeEnergyStats.sumQuantity?.quantity ?? 0),
-      exerciseMinutes: Math.round(exerciseStats.sumQuantity?.quantity ?? 0),
-      workouts,
-    };
-  } catch (error) {
-    console.error('[HealthKit] Error fetching activity:', error);
-    return null;
-  }
-}
-
-export async function syncHealthKitData(): Promise<{
-  success: boolean;
-  workoutsImported: number;
-  message: string;
-}> {
-  console.log('[HealthKit] Starting sync...');
-
-  const permissions = await checkHealthKitPermissions();
-
-  if (permissions.overallStatus !== 'authorized') {
+  if (!granted) {
     return {
       success: false,
-      workoutsImported: 0,
-      message: 'HealthKit permissions not granted. Please enable in settings.',
+      imported: 0,
+      sent: 0,
+      message: 'Apple Health access was not granted. You can change this in the Health app.',
     };
   }
 
-  const endDate = new Date();
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - 7);
+  await AsyncStorage.setItem(ENABLED_KEY, '1');
+  return syncWithAppleHealth();
+}
 
-  const workouts = await fetchHealthKitWorkouts(startDate, endDate);
+/** Turns the switch off: stops all syncing. Health access itself stays managed by iOS. */
+export async function disconnectAppleHealth(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(ENABLED_KEY);
+    await AsyncStorage.removeItem(LAST_SYNC_KEY);
+  } catch (error) {
+    console.error('[AppleHealth] Error disconnecting:', error);
+  }
+}
+
+/** Both directions in one call: send new Alchemize workouts out, pull HealthKit ones in. */
+export async function syncWithAppleHealth(): Promise<AppleHealthSyncResult> {
+  if (!(await isAppleHealthEnabled())) {
+    return { success: false, imported: 0, sent: 0, message: 'Apple Health is off.' };
+  }
+
+  try {
+    const sent = await sendWorkoutsToHealth();
+    const imported = await pullWorkoutsFromHealth();
+    await setLastSyncTime(new Date().toISOString());
+
+    return {
+      success: true,
+      imported,
+      sent,
+      message: buildMessage(imported, sent),
+    };
+  } catch (error) {
+    console.error('[AppleHealth] Sync failed:', error);
+    return { success: false, imported: 0, sent: 0, message: 'Could not sync with Apple Health.' };
+  }
+}
+
+/** Quiet background sync used on screen mount — never blocks or alerts. */
+export async function syncAppleHealthInBackground(): Promise<void> {
+  if (!(await isAppleHealthEnabled())) return;
+  await syncWithAppleHealth();
+}
+
+/** Sends a single just-finished workout to Apple Health (no-op when the switch is off). */
+export async function sendWorkoutToAppleHealth(session: WorkoutSession): Promise<void> {
+  if (!(await isAppleHealthEnabled())) return;
+
+  try {
+    const sent = await getSentIds();
+    if (sent.has(session.id)) return;
+    await saveSession(session);
+    await markSent(session.id, sent);
+    await setLastSyncTime(new Date().toISOString());
+  } catch (error) {
+    console.error('[AppleHealth] Could not send workout:', error);
+  }
+}
+
+function buildMessage(imported: number, sent: number): string {
+  const parts: string[] = [];
+  if (sent > 0) parts.push(`sent ${sent} workout${sent === 1 ? '' : 's'}`);
+  if (imported > 0) parts.push(`brought in ${imported} workout${imported === 1 ? '' : 's'}`);
+  if (parts.length === 0) return 'Everything is up to date';
+  return `Synced: ${parts.join(', ')}`;
+}
+
+async function getSentIds(): Promise<Set<string>> {
+  try {
+    const stored = await AsyncStorage.getItem(SENT_KEY);
+    return new Set<string>(stored ? (JSON.parse(stored) as string[]) : []);
+  } catch {
+    return new Set<string>();
+  }
+}
+
+async function markSent(id: string, sent: Set<string>): Promise<void> {
+  sent.add(id);
+  // Keep only the most recent ids so the stored list cannot grow forever.
+  const trimmed = Array.from(sent).slice(-500);
+  await AsyncStorage.setItem(SENT_KEY, JSON.stringify(trimmed));
+}
+
+// ── Sending Alchemize workouts to Apple Health ──────────────────────────────
+
+const CATEGORY_ACTIVITY_TYPE: Record<string, WorkoutActivityType> = {
+  strength: WorkoutActivityType.traditionalStrengthTraining,
+  hiit: WorkoutActivityType.highIntensityIntervalTraining,
+  yoga: WorkoutActivityType.yoga,
+  core: WorkoutActivityType.coreTraining,
+  mobility: WorkoutActivityType.flexibility,
+  stretch: WorkoutActivityType.flexibility,
+  walk: WorkoutActivityType.walking,
+  run: WorkoutActivityType.running,
+};
+
+async function sendWorkoutsToHealth(): Promise<number> {
+  const sent = await getSentIds();
+  const { workoutSessionsDb, workoutTemplatesDb } = await import('./database');
+
+  const [sessions, templates] = await Promise.all([
+    workoutSessionsDb.getAll(),
+    workoutTemplatesDb.getAll(),
+  ]);
+  const categoryByTemplate = new Map(templates.map((t) => [t.id, t.category]));
+
+  const pending = sessions.filter(
+    (s) => s.completed && s.source === 'manual' && !sent.has(s.id) && !s.id.startsWith('healthkit_')
+  );
+
+  let count = 0;
+  for (const session of pending) {
+    await saveSession(session, categoryByTemplate.get(session.templateId));
+    await markSent(session.id, sent);
+    count++;
+  }
+  return count;
+}
+
+async function saveSession(session: WorkoutSession, category?: string): Promise<void> {
+  const startDate = new Date(session.startedAt);
+  const endDate = new Date(session.endedAt ?? session.startedAt + session.durationMinutes * 60_000);
+  const activityType = (category && CATEGORY_ACTIVITY_TYPE[category]) || WorkoutActivityType.other;
+
+  const quantities = session.caloriesEstimate
+    ? [
+        {
+          quantityType: ACTIVE_ENERGY_IDENTIFIER,
+          quantity: session.caloriesEstimate,
+          unit: 'kcal',
+          startDate,
+          endDate,
+        },
+      ]
+    : [];
+
+  await saveWorkoutSample(activityType, quantities, startDate, endDate);
+}
+
+// ── Bringing HealthKit workouts into Alchemize ──────────────────────────────
+
+async function pullWorkoutsFromHealth(): Promise<number> {
+  const endDate = new Date();
+  const startDate = new Date(endDate.getTime() - IMPORT_DAYS * 24 * 60 * 60 * 1000);
+
+  const workouts = await queryWorkoutSamples({
+    filter: { date: { startDate, endDate } },
+    limit: 0,
+    ascending: false,
+  });
 
   const { workoutSessionsDb, normalizedMetricsDb } = await import('./database');
 
   let imported = 0;
   for (const workout of workouts) {
-    const sessionId = `healthkit_${workout.id}`;
-    const existing = await workoutSessionsDb.getById(sessionId);
-    if (existing) continue;
+    // Workouts Alchemize already sent to Apple Health are already in the app.
+    if (workout.sourceRevision?.source?.bundleIdentifier === APP_BUNDLE_ID) continue;
 
-    const caloriesEstimate = workout.caloriesBurned ?? null;
+    const id = `healthkit_${workout.uuid}`;
+    if (await workoutSessionsDb.getById(id)) continue;
+
+    const minutes = Math.max(1, Math.round(workout.duration.quantity));
+    const calories = workout.totalEnergyBurned ? Math.round(workout.totalEnergyBurned.quantity) : null;
+    const startedAt = workout.startDate.getTime();
 
     await workoutSessionsDb.create({
-      id: sessionId,
+      id,
       templateId: 'healthkit',
-      startedAt: new Date(workout.startDate).getTime(),
-      endedAt: new Date(workout.endDate).getTime(),
-      durationMinutes: workout.duration,
+      startedAt,
+      endedAt: workout.endDate.getTime(),
+      durationMinutes: minutes,
       completed: true,
-      caloriesEstimate,
+      caloriesEstimate: calories,
       source: 'wearable',
     });
 
-    const dateStr = workout.startDate.split('T')[0];
+    const dateStr = workout.startDate.toISOString().split('T')[0];
     await normalizedMetricsDb.upsert({
       id: `healthkit_${dateStr}`,
       date: dateStr,
-      activeMinutes: workout.duration,
-      caloriesActive: caloriesEstimate ?? 0,
+      activeMinutes: minutes,
+      caloriesActive: calories ?? 0,
       steps: 0,
       source: 'wearable',
       deviceType: 'none',
@@ -354,65 +289,7 @@ export async function syncHealthKitData(): Promise<{
     imported++;
   }
 
-  await setLastSyncTime(new Date().toISOString());
-
-  console.log('[HealthKit] Sync complete. Imported', imported, 'of', workouts.length, 'workouts');
-
-  return {
-    success: true,
-    workoutsImported: imported,
-    message: imported > 0
-      ? `Synced ${imported} new workout${imported === 1 ? '' : 's'} from Apple Health`
-      : workouts.length > 0
-        ? 'Already up to date — no new workouts since last sync'
-        : 'No workouts found in Apple Health for the last 7 days',
-  };
+  return imported;
 }
 
-export function formatWorkoutType(type: string): string {
-  const typeMap: Record<string, string> = {
-    'HKWorkoutActivityTypeRunning': 'Running',
-    'HKWorkoutActivityTypeWalking': 'Walking',
-    'HKWorkoutActivityTypeCycling': 'Cycling',
-    'HKWorkoutActivityTypeSwimming': 'Swimming',
-    'HKWorkoutActivityTypeYoga': 'Yoga',
-    'HKWorkoutActivityTypeStrengthTraining': 'Strength Training',
-    'HKWorkoutActivityTypeHighIntensityIntervalTraining': 'HIIT',
-    'HKWorkoutActivityTypeFunctionalStrengthTraining': 'Functional Training',
-    'HKWorkoutActivityTypeCoreTraining': 'Core Training',
-    'HKWorkoutActivityTypeElliptical': 'Elliptical',
-    'HKWorkoutActivityTypeRowing': 'Rowing',
-    'HKWorkoutActivityTypeDance': 'Dance',
-    'HKWorkoutActivityTypePilates': 'Pilates',
-  };
 
-  return typeMap[type] || type;
-}
-
-export function getPermissionStatusLabel(status: HealthKitPermissionStatus): string {
-  switch (status) {
-    case 'authorized':
-      return 'Enabled';
-    case 'denied':
-      return 'Denied';
-    case 'unavailable':
-      return 'Unavailable';
-    case 'notDetermined':
-    default:
-      return 'Not Set';
-  }
-}
-
-export function getPermissionStatusColor(status: HealthKitPermissionStatus): string {
-  switch (status) {
-    case 'authorized':
-      return '#22c55e';
-    case 'denied':
-      return '#ef4444';
-    case 'unavailable':
-      return '#6b7280';
-    case 'notDetermined':
-    default:
-      return '#f59e0b';
-  }
-}

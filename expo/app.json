@@ -23,7 +23,7 @@
         "ITSAppUsesNonExemptEncryption": false,
         "NSMotionUsageDescription": "Alchemize uses your motion and fitness data to count your daily steps.",
         "NSHealthShareUsageDescription": "Alchemize reads your Apple Health data (workouts, active energy, exercise minutes) to keep your fitness stats in sync.",
-        "NSHealthUpdateUsageDescription": "Alchemize does not write any data to Apple Health.",
+        "NSHealthUpdateUsageDescription": "Alchemize saves your completed workouts and active calories to Apple Health so both stay in sync.",
         "NSCalendarsUsageDescription": "Alchemize adds your appointments to your device calendar so you do not miss them.",
         "NSCalendarsFullAccessUsageDescription": "Alchemize adds your appointments to your device calendar so you do not miss them.",
         "NSRemindersUsageDescription": "Alchemize can add your appointment reminders to your device so you do not miss them.",
@@ -137,7 +137,7 @@
         "@kingstinct/react-native-healthkit",
         {
           "NSHealthShareUsageDescription": "Alchemize reads your Apple Health data (workouts, active energy, exercise minutes) to keep your fitness stats in sync.",
-          "NSHealthUpdateUsageDescription": "Alchemize does not write any data to Apple Health."
+          "NSHealthUpdateUsageDescription": "Alchemize saves your completed workouts and active calories to Apple Health so both stay in sync."
         }
       ]
     ],

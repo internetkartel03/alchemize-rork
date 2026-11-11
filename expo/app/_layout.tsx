@@ -10,6 +10,7 @@ import ScreenTransition from "@/components/ScreenTransition";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { AuthProvider, useAuth } from "@/contexts/auth-context";
 import { initDatabase } from '@/lib/db/core';
+import { syncAppleHealthInBackground } from '@/lib/healthkit';
 import NetworkBanner from "@/components/NetworkBanner";
 import GestureOnboarding from "@/components/GestureOnboarding";
 import { registerForPushNotifications } from "@/lib/notifications";
@@ -169,7 +170,11 @@ export default function RootLayout() {
     if (Platform.OS !== 'web') {
       console.log('[App] Initializing database...');
       initDatabase()
-        .then(() => console.log('[App] Database ready'))
+        .then(async () => {
+          console.log('[App] Database ready');
+          // No-op unless the Apple Health switch is on.
+          await syncAppleHealthInBackground();
+        })
         .catch((err) => console.error('[App] Database init failed:', err));
 
       console.log('[App] Registering for push notifications...');

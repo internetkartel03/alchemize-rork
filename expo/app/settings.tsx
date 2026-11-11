@@ -31,13 +31,8 @@ import {
   X,
   Trash2,
   Eye,
-  RefreshCw,
   Watch,
-  Activity,
-  Heart,
-  Zap,
   CheckCircle,
-  AlertCircle,
   Download,
   Smartphone,
   Bell,
@@ -54,13 +49,12 @@ import { resetDatabase } from '@/lib/db/core';
 import { registerForPushNotifications, getNotificationStatus } from '@/lib/notifications';
 import { requestCalendarPermission, getCalendarPermissionStatus } from '@/lib/calendar';
 import {
+  isAppleHealthEnabled,
   isHealthKitSupported,
-  getStoredPermissions,
-  requestHealthKitPermissions,
-  revokeHealthKitPermissions,
-  syncHealthKitData,
+  connectAppleHealth,
+  disconnectAppleHealth,
+  syncWithAppleHealth,
   getLastSyncTime,
-  type HealthKitPermissions,
 } from '@/lib/healthkit';
 
 const APP_VERSION = '1.0.0';
@@ -112,8 +106,7 @@ export default function SettingsScreen() {
   const [featureVisibility, setFeatureVisibility] = useState<FeatureVisibility>({});
   const [themeModalVisible, setThemeModalVisible] = useState(false);
 
-  const [healthKitModalVisible, setHealthKitModalVisible] = useState(false);
-  const [healthKitPermissions, setHealthKitPermissions] = useState<HealthKitPermissions | null>(null);
+  const [appleHealthEnabled, setAppleHealthEnabled] = useState(false);
   const [healthKitLastSync, setHealthKitLastSync] = useState<string | null>(null);
   const [isSyncingHealthKit, setIsSyncingHealthKit] = useState(false);
   const { theme, setTheme } = useTheme();
@@ -233,13 +226,10 @@ export default function SettingsScreen() {
 
   const loadHealthKitStatus = useCallback(async () => {
     try {
-      const permissions = await getStoredPermissions();
-      setHealthKitPermissions(permissions);
-      const lastSync = await getLastSyncTime();
-      setHealthKitLastSync(lastSync);
-      console.log('[Settings] HealthKit status loaded:', permissions.overallStatus);
+      setAppleHealthEnabled(await isAppleHealthEnabled());
+      setHealthKitLastSync(await getLastSyncTime());
     } catch (error) {
-      console.error('[Settings] Error loading HealthKit status:', error);
+      console.error('[Settings] Error loading Apple Health status:', error);
     }
   }, []);
 
@@ -370,67 +360,56 @@ export default function SettingsScreen() {
 
 
 
-  const handleHealthKitPress = () => {
-    console.log('[Settings] Opening HealthKit settings...');
-    setHealthKitModalVisible(true);
-  };
+  /**
+   * The whole Apple Health integration is this one switch: on asks for access and
+   * syncs both ways, off stops syncing. No separate screens or buttons.
+   */
+  const handleToggleAppleHealth = async (value: boolean) => {
+    if (isSyncingHealthKit) return;
 
-  const handleEnableHealthKit = async () => {
-    console.log('[Settings] Enabling HealthKit...');
+    if (!value) {
+      await disconnectAppleHealth();
+      setAppleHealthEnabled(false);
+      setHealthKitLastSync(null);
+      Alert.alert('Apple Health Off', 'Alchemize will stop syncing with Apple Health.');
+      return;
+    }
+
+    const { supported, reason } = isHealthKitSupported();
+    if (!supported) {
+      Alert.alert('Not Available', reason);
+      return;
+    }
+
+    setIsSyncingHealthKit(true);
     try {
-      const permissions = await requestHealthKitPermissions();
-      setHealthKitPermissions(permissions);
-      if (permissions.overallStatus === 'authorized') {
-        Alert.alert(
-          'Apple Health Connected',
-          'Your wearable data will now enhance your tracking. You stay in control of all entries.'
-        );
-      } else if (permissions.overallStatus === 'unavailable') {
-        const { reason } = isHealthKitSupported();
-        Alert.alert('Not Available', reason);
+      const result = await connectAppleHealth();
+      if (!result.success) {
+        setAppleHealthEnabled(false);
+        Alert.alert('Apple Health Not Connected', result.message);
+        return;
       }
+      setAppleHealthEnabled(true);
+      setHealthKitLastSync(await getLastSyncTime());
+      Alert.alert('Apple Health On', result.message);
     } catch (error) {
-      console.error('[Settings] Error enabling HealthKit:', error);
-      Alert.alert('Error', 'Failed to connect to Apple Health. Please try again.');
+      console.error('[Settings] Error enabling Apple Health:', error);
+      setAppleHealthEnabled(false);
+      Alert.alert('Error', 'Could not connect to Apple Health. Please try again.');
+    } finally {
+      setIsSyncingHealthKit(false);
     }
   };
 
-  const handleDisableHealthKit = async () => {
-    Alert.alert(
-      'Disconnect Apple Health?',
-      'This will stop syncing wearable data. Your existing data will be preserved.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Disconnect',
-          style: 'destructive',
-          onPress: async () => {
-            await revokeHealthKitPermissions();
-            setHealthKitPermissions(null);
-            setHealthKitLastSync(null);
-            console.log('[Settings] HealthKit disconnected');
-          },
-        },
-      ]
-    );
-  };
-
-  const handleSyncHealthKit = async () => {
+  const handleSyncNow = async () => {
     if (isSyncingHealthKit) return;
-    console.log('[Settings] Syncing HealthKit...');
     setIsSyncingHealthKit(true);
     try {
-      const result = await syncHealthKitData();
-      if (result.success) {
-        const lastSync = await getLastSyncTime();
-        setHealthKitLastSync(lastSync);
-        Alert.alert('Sync Complete', result.message);
-      } else {
-        Alert.alert('Sync Failed', result.message);
-      }
+      const result = await syncWithAppleHealth();
+      setHealthKitLastSync(await getLastSyncTime());
+      if (!result.success) Alert.alert('Sync Failed', result.message);
     } catch (error) {
-      console.error('[Settings] Error syncing HealthKit:', error);
-      Alert.alert('Error', 'Failed to sync with Apple Health.');
+      console.error('[Settings] Error syncing Apple Health:', error);
     } finally {
       setIsSyncingHealthKit(false);
     }
@@ -841,26 +820,36 @@ export default function SettingsScreen() {
           <ChevronRight color="#666" size={20} />
         </PressableScale>
 
-        <PressableScale style={styles.settingRow} onPress={handleHealthKitPress}>
-          <View style={styles.settingRowLeft}>
+        <View style={styles.settingRow}>
+          <PressableScale
+            style={styles.settingRowLeft}
+            onPress={() => (appleHealthEnabled ? handleSyncNow() : handleToggleAppleHealth(true))}
+          >
             <View style={[styles.iconContainer, { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
               <Watch color="#ef4444" size={20} />
             </View>
             <View style={styles.settingTextContainer}>
               <Text style={styles.settingTitle}>Apple Health</Text>
               <Text style={styles.settingSubtitle}>
-                {healthKitPermissions?.overallStatus === 'authorized'
-                  ? `Connected • Last sync: ${formatLastSync(healthKitLastSync)}`
-                  : 'Sync workouts from Apple Health'}
+                {isSyncingHealthKit
+                  ? 'Syncing with Apple Health…'
+                  : appleHealthEnabled
+                    ? `On • ${formatLastSync(healthKitLastSync)} — tap to sync`
+                    : isHealthKitSupported().supported
+                      ? 'Sync workouts both ways'
+                      : 'Available in the iPhone app'}
               </Text>
             </View>
-          </View>
-          {healthKitPermissions?.overallStatus === 'authorized' ? (
-            <CheckCircle color="#22c55e" size={20} />
-          ) : (
-            <ChevronRight color="#666" size={20} />
-          )}
-        </PressableScale>
+          </PressableScale>
+          <Switch
+            value={appleHealthEnabled}
+            onValueChange={handleToggleAppleHealth}
+            disabled={isSyncingHealthKit || !isHealthKitSupported().supported}
+            trackColor={{ false: '#2a2a2a', true: 'rgba(239, 68, 68, 0.6)' }}
+            thumbColor="#fff"
+            ios_backgroundColor="#2a2a2a"
+          />
+        </View>
 
         <PressableScale style={styles.settingRow} onPress={handleToggleNotifications}>
           <View style={styles.settingRowLeft}>
@@ -1475,156 +1464,6 @@ export default function SettingsScreen() {
         </View>
       </Modal>
 
-      {/* HealthKit / Apple Health Modal */}
-      <Modal
-        visible={healthKitModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setHealthKitModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.fullModal}>
-            <View style={styles.fullModalHeader}>
-              <Text style={styles.fullModalTitle}>Apple Health</Text>
-              <PressableScale onPress={() => setHealthKitModalVisible(false)}>
-                <X color="#fff" size={24} />
-              </PressableScale>
-            </View>
-            <ScrollView style={styles.fullModalScroll} showsVerticalScrollIndicator={false}>
-              <View style={styles.healthKitHero}>
-                <View style={styles.healthKitIconContainer}>
-                  <Heart color="#ef4444" size={32} />
-                </View>
-                <Text style={styles.healthKitHeroTitle}>
-                  {healthKitPermissions?.overallStatus === 'authorized'
-                    ? 'Connected to Apple Health'
-                    : 'Connect Your Wearables'}
-                </Text>
-                <Text style={styles.healthKitHeroSubtitle}>
-                  Wearable data enhances tracking.{"\n"}You stay in control.
-                </Text>
-              </View>
-
-              {healthKitPermissions?.overallStatus === 'authorized' ? (
-                <>
-                  <View style={styles.healthKitStatusCard}>
-                    <View style={styles.healthKitStatusRow}>
-                      <View style={styles.healthKitStatusLeft}>
-                        <Zap color="#f59e0b" size={18} />
-                        <Text style={styles.healthKitStatusLabel}>Active Energy</Text>
-                      </View>
-                      <View style={[styles.healthKitStatusBadge, { backgroundColor: 'rgba(34, 197, 94, 0.15)' }]}>
-                        <Text style={[styles.healthKitStatusValue, { color: '#22c55e' }]}>Enabled</Text>
-                      </View>
-                    </View>
-                    <View style={styles.healthKitStatusRow}>
-                      <View style={styles.healthKitStatusLeft}>
-                        <Activity color="#3b82f6" size={18} />
-                        <Text style={styles.healthKitStatusLabel}>Workouts</Text>
-                      </View>
-                      <View style={[styles.healthKitStatusBadge, { backgroundColor: 'rgba(34, 197, 94, 0.15)' }]}>
-                        <Text style={[styles.healthKitStatusValue, { color: '#22c55e' }]}>Enabled</Text>
-                      </View>
-                    </View>
-                    <View style={styles.healthKitStatusRow}>
-                      <View style={styles.healthKitStatusLeft}>
-                        <Watch color="#a78bfa" size={18} />
-                        <Text style={styles.healthKitStatusLabel}>Exercise Minutes</Text>
-                      </View>
-                      <View style={[styles.healthKitStatusBadge, { backgroundColor: 'rgba(34, 197, 94, 0.15)' }]}>
-                        <Text style={[styles.healthKitStatusValue, { color: '#22c55e' }]}>Enabled</Text>
-                      </View>
-                    </View>
-                  </View>
-
-                  <View style={styles.healthKitSyncInfo}>
-                    <Text style={styles.healthKitSyncLabel}>Last Synced</Text>
-                    <Text style={styles.healthKitSyncValue}>{formatLastSync(healthKitLastSync)}</Text>
-                  </View>
-
-                  <PressableScale
-                    style={[styles.healthKitSyncButton, isSyncingHealthKit && styles.healthKitSyncButtonDisabled]}
-                    onPress={handleSyncHealthKit}
-                    disabled={isSyncingHealthKit}
-                  >
-                    <RefreshCw color="#fff" size={20} />
-                    <Text style={styles.healthKitSyncButtonText}>
-                      {isSyncingHealthKit ? 'Syncing...' : 'Sync Now'}
-                    </Text>
-                  </PressableScale>
-
-                  <PressableScale
-                    style={styles.healthKitDisconnectButton}
-                    onPress={handleDisableHealthKit}
-                  >
-                    <Text style={styles.healthKitDisconnectText}>Disconnect Apple Health</Text>
-                  </PressableScale>
-                </>
-              ) : (
-                <>
-                  <View style={styles.healthKitFeatureList}>
-                    <View style={styles.healthKitFeatureItem}>
-                      <View style={[styles.healthKitFeatureIcon, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
-                        <Zap color="#f59e0b" size={20} />
-                      </View>
-                      <View style={styles.healthKitFeatureText}>
-                        <Text style={styles.healthKitFeatureTitle}>Active Energy Burned</Text>
-                        <Text style={styles.healthKitFeatureDesc}>Track calories from your daily movement</Text>
-                      </View>
-                    </View>
-                    <View style={styles.healthKitFeatureItem}>
-                      <View style={[styles.healthKitFeatureIcon, { backgroundColor: 'rgba(59, 130, 246, 0.15)' }]}>
-                        <Activity color="#3b82f6" size={20} />
-                      </View>
-                      <View style={styles.healthKitFeatureText}>
-                        <Text style={styles.healthKitFeatureTitle}>Workouts</Text>
-                        <Text style={styles.healthKitFeatureDesc}>Import workouts from Apple Health</Text>
-                      </View>
-                    </View>
-                    <View style={styles.healthKitFeatureItem}>
-                      <View style={[styles.healthKitFeatureIcon, { backgroundColor: 'rgba(167, 139, 250, 0.15)' }]}>
-                        <Watch color="#a78bfa" size={20} />
-                      </View>
-                      <View style={styles.healthKitFeatureText}>
-                        <Text style={styles.healthKitFeatureTitle}>Exercise Minutes</Text>
-                        <Text style={styles.healthKitFeatureDesc}>See your daily exercise progress</Text>
-                      </View>
-                    </View>
-                  </View>
-
-                  {Platform.OS !== 'ios' && (
-                    <View style={styles.healthKitWarning}>
-                      <AlertCircle color="#f59e0b" size={20} />
-                      <Text style={styles.healthKitWarningText}>
-                        {Platform.OS === 'web'
-                          ? 'Apple Health is only available on iOS devices. Use the mobile app to sync wearable data.'
-                          : 'Apple Health is only available on iOS devices.'}
-                      </Text>
-                    </View>
-                  )}
-
-                  <PressableScale
-                    style={[
-                      styles.healthKitConnectButton,
-                      Platform.OS !== 'ios' && styles.healthKitConnectButtonDisabled,
-                    ]}
-                    onPress={handleEnableHealthKit}
-                    disabled={Platform.OS !== 'ios'}
-                  >
-                    <Heart color="#fff" size={20} />
-                    <Text style={styles.healthKitConnectText}>Connect Apple Health</Text>
-                  </PressableScale>
-
-                  <Text style={styles.healthKitDisclaimer}>
-                    Your health data stays on your device. We only read workout and activity data to enhance your tracking experience.
-                  </Text>
-                </>
-              )}
-              <View style={styles.legalBottomPadding} />
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
       </ScrollView>
       </Animated.View>
     </View>
@@ -2190,190 +2029,5 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
     paddingHorizontal: 20,
-  },
-  healthKitHero: {
-    alignItems: 'center',
-    paddingVertical: 24,
-    marginBottom: 20,
-  },
-  healthKitIconContainer: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  healthKitHeroTitle: {
-    fontSize: 22,
-    fontWeight: '700' as const,
-    color: '#fff',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  healthKitHeroSubtitle: {
-    fontSize: 14,
-    color: '#888',
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  healthKitStatusCard: {
-    backgroundColor: '#141414',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-  },
-  healthKitStatusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#2a2a2a',
-  },
-  healthKitStatusLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  healthKitStatusLabel: {
-    fontSize: 15,
-    color: '#fff',
-    fontWeight: '500' as const,
-  },
-  healthKitStatusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  healthKitStatusValue: {
-    fontSize: 13,
-    fontWeight: '600' as const,
-  },
-  healthKitSyncInfo: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#141414',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-  },
-  healthKitSyncLabel: {
-    fontSize: 14,
-    color: '#888',
-  },
-  healthKitSyncValue: {
-    fontSize: 14,
-    color: '#fff',
-    fontWeight: '600' as const,
-  },
-  healthKitSyncButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#a78bfa',
-    padding: 16,
-    borderRadius: 12,
-    gap: 10,
-    marginBottom: 12,
-  },
-  healthKitSyncButtonDisabled: {
-    backgroundColor: '#666',
-    opacity: 0.7,
-  },
-  healthKitSyncButtonText: {
-    fontSize: 16,
-    fontWeight: '600' as const,
-    color: '#fff',
-  },
-  healthKitDisconnectButton: {
-    alignItems: 'center',
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.3)',
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-  },
-  healthKitDisconnectText: {
-    fontSize: 15,
-    color: '#ef4444',
-    fontWeight: '600' as const,
-  },
-  healthKitFeatureList: {
-    marginBottom: 20,
-  },
-  healthKitFeatureItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#141414',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 10,
-    gap: 14,
-  },
-  healthKitFeatureIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  healthKitFeatureText: {
-    flex: 1,
-  },
-  healthKitFeatureTitle: {
-    fontSize: 15,
-    fontWeight: '600' as const,
-    color: '#fff',
-    marginBottom: 4,
-  },
-  healthKitFeatureDesc: {
-    fontSize: 13,
-    color: '#888',
-  },
-  healthKitWarning: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: 'rgba(245, 158, 11, 0.1)',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 20,
-    gap: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.3)',
-  },
-  healthKitWarningText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#f59e0b',
-    lineHeight: 20,
-  },
-  healthKitConnectButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#ef4444',
-    padding: 16,
-    borderRadius: 12,
-    gap: 10,
-    marginBottom: 16,
-  },
-  healthKitConnectButtonDisabled: {
-    backgroundColor: '#666',
-    opacity: 0.5,
-  },
-  healthKitConnectText: {
-    fontSize: 16,
-    fontWeight: '600' as const,
-    color: '#fff',
-  },
-  healthKitDisclaimer: {
-    fontSize: 12,
-    color: '#666',
-    textAlign: 'center',
-    lineHeight: 18,
-    paddingHorizontal: 16,
   },
 });
