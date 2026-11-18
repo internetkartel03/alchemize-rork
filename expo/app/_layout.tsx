@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack, useRouter, useRootNavigationState, useSegments } from "expo-router";
 import React, { useEffect } from "react";
-import { StyleSheet, Platform, View, Image } from 'react-native';
+import { StyleSheet, Platform, View, Image, AppState } from 'react-native';
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import * as SplashScreen from "expo-splash-screen";
@@ -185,6 +185,20 @@ export default function RootLayout() {
         })
         .catch((err) => console.error('[App] Push registration error:', err));
     }
+  }, []);
+
+  // Returning to the app is the most reliable "background" sync iOS offers, so
+  // refresh Apple Health then. Throttled and a no-op when the switch is off.
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void syncAppleHealthInBackground();
+      }
+    });
+
+    return () => subscription.remove();
   }, []);
 
   return (

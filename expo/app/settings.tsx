@@ -49,12 +49,12 @@ import { resetDatabase } from '@/lib/db/core';
 import { registerForPushNotifications, getNotificationStatus } from '@/lib/notifications';
 import { requestCalendarPermission, getCalendarPermissionStatus } from '@/lib/calendar';
 import {
-  isAppleHealthEnabled,
   isHealthKitSupported,
   connectAppleHealth,
   disconnectAppleHealth,
   syncWithAppleHealth,
-  getLastSyncTime,
+  getAppleHealthStatus,
+  type AppleHealthStatus,
 } from '@/lib/healthkit';
 
 const APP_VERSION = '1.0.0';
@@ -108,6 +108,8 @@ export default function SettingsScreen() {
 
   const [appleHealthEnabled, setAppleHealthEnabled] = useState(false);
   const [healthKitLastSync, setHealthKitLastSync] = useState<string | null>(null);
+  const [healthStatus, setHealthStatus] = useState<AppleHealthStatus | null>(null);
+  const [healthSyncFailed, setHealthSyncFailed] = useState(false);
   const [isSyncingHealthKit, setIsSyncingHealthKit] = useState(false);
   const { theme, setTheme } = useTheme();
   const [pwaInstallPrompt, setPwaInstallPrompt] = useState<any>(null);
@@ -226,8 +228,10 @@ export default function SettingsScreen() {
 
   const loadHealthKitStatus = useCallback(async () => {
     try {
-      setAppleHealthEnabled(await isAppleHealthEnabled());
-      setHealthKitLastSync(await getLastSyncTime());
+      const status = await getAppleHealthStatus();
+      setHealthStatus(status);
+      setAppleHealthEnabled(status.enabled);
+      setHealthKitLastSync(status.lastSyncedAt);
     } catch (error) {
       console.error('[Settings] Error loading Apple Health status:', error);
     }
@@ -364,6 +368,12 @@ export default function SettingsScreen() {
    * The whole Apple Health integration is this one switch: on asks for access and
    * syncs both ways, off stops syncing. No separate screens or buttons.
    */
+  const openHealthApp = () => {
+    Linking.openURL('x-apple-health://').catch(() => {
+      Linking.openSettings().catch(() => {});
+    });
+  };
+
   const handleToggleAppleHealth = async (value: boolean) => {
     if (isSyncingHealthKit) return;
 
@@ -371,6 +381,8 @@ export default function SettingsScreen() {
       await disconnectAppleHealth();
       setAppleHealthEnabled(false);
       setHealthKitLastSync(null);
+      setHealthSyncFailed(false);
+      await loadHealthKitStatus();
       Alert.alert('Apple Health Off', 'Alchemize will stop syncing with Apple Health.');
       return;
     }
@@ -382,19 +394,37 @@ export default function SettingsScreen() {
     }
 
     setIsSyncingHealthKit(true);
+    setHealthSyncFailed(false);
     try {
       const result = await connectAppleHealth();
-      if (!result.success) {
-        setAppleHealthEnabled(false);
-        Alert.alert('Apple Health Not Connected', result.message);
+      const status = await getAppleHealthStatus();
+      setHealthStatus(status);
+      setAppleHealthEnabled(status.enabled);
+      setHealthKitLastSync(status.lastSyncedAt);
+
+      // Connection and synchronization are separate outcomes: keep the switch on
+      // when access was granted even if the first sync only partly succeeded.
+      if (!status.enabled) {
+        Alert.alert(
+          'Apple Health Access Needed',
+          result.message,
+          [
+            { text: 'Not Now', style: 'cancel' },
+            { text: 'Open Health App', onPress: openHealthApp },
+          ]
+        );
         return;
       }
-      setAppleHealthEnabled(true);
-      setHealthKitLastSync(await getLastSyncTime());
+
+      if (!result.success) {
+        setHealthSyncFailed(true);
+        Alert.alert(result.partial ? 'Sync Incomplete' : 'Sync Failed', result.message);
+        return;
+      }
+
       Alert.alert('Apple Health On', result.message);
     } catch (error) {
       console.error('[Settings] Error enabling Apple Health:', error);
-      setAppleHealthEnabled(false);
       Alert.alert('Error', 'Could not connect to Apple Health. Please try again.');
     } finally {
       setIsSyncingHealthKit(false);
@@ -405,14 +435,51 @@ export default function SettingsScreen() {
     if (isSyncingHealthKit) return;
     setIsSyncingHealthKit(true);
     try {
-      const result = await syncWithAppleHealth();
-      setHealthKitLastSync(await getLastSyncTime());
-      if (!result.success) Alert.alert('Sync Failed', result.message);
+      // Tapping Sync Now is an explicit action, so it may ask for any missing access.
+      const result = await syncWithAppleHealth({ allowPrompt: true });
+      const status = await getAppleHealthStatus();
+      setHealthStatus(status);
+      setAppleHealthEnabled(status.enabled);
+      setHealthKitLastSync(status.lastSyncedAt);
+      setHealthSyncFailed(!result.success);
+
+      if (result.success) return;
+
+      if (result.needsPermission) {
+        Alert.alert(
+          'Apple Health Access Needed',
+          result.message,
+          [
+            { text: 'Not Now', style: 'cancel' },
+            { text: 'Open Health App', onPress: openHealthApp },
+          ]
+        );
+        return;
+      }
+
+      Alert.alert(result.partial ? 'Sync Incomplete' : 'Sync Failed', result.message);
     } catch (error) {
       console.error('[Settings] Error syncing Apple Health:', error);
+      setHealthSyncFailed(true);
+      Alert.alert('Sync Failed', 'Could not sync with Apple Health. Please try again.');
     } finally {
       setIsSyncingHealthKit(false);
     }
+  };
+
+  const appleHealthStatusLabel = (): string => {
+    if (isSyncingHealthKit) return 'Syncing with Apple Health…';
+    if (!appleHealthEnabled) {
+      return isHealthKitSupported().supported
+        ? 'Sync workouts & nutrition both ways'
+        : 'Available in the iPhone app';
+    }
+    if (healthStatus?.needsPermission) {
+      return 'Action required — allow access in the Health app';
+    }
+    if (healthSyncFailed) return 'Sync temporarily unavailable — tap to retry';
+    if (!healthKitLastSync) return 'Connected — waiting for first sync';
+    return `Connected • Up to date (${formatLastSync(healthKitLastSync)}) — tap to sync`;
   };
 
   const formatLastSync = (isoString: string | null): string => {
@@ -830,15 +897,7 @@ export default function SettingsScreen() {
             </View>
             <View style={styles.settingTextContainer}>
               <Text style={styles.settingTitle}>Apple Health</Text>
-              <Text style={styles.settingSubtitle}>
-                {isSyncingHealthKit
-                  ? 'Syncing with Apple Health…'
-                  : appleHealthEnabled
-                    ? `On • ${formatLastSync(healthKitLastSync)} — tap to sync`
-                    : isHealthKitSupported().supported
-                      ? 'Sync workouts & nutrition both ways'
-                      : 'Available in the iPhone app'}
-              </Text>
+              <Text style={styles.settingSubtitle}>{appleHealthStatusLabel()}</Text>
             </View>
           </PressableScale>
           <Switch

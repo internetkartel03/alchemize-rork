@@ -164,7 +164,10 @@ Provide an estimated calorie burn based on this information. Consider typical me
     },
     onError: (error) => {
       console.error('AI estimation error:', error);
-      Alert.alert('Estimation Failed', 'Could not estimate calories. Please try again or enter manually.');
+      const reason = error instanceof Error && error.message
+        ? error.message
+        : 'Could not estimate calories.';
+      Alert.alert('Estimation Failed', `${reason} You can also enter the calories manually.`);
     },
   });
 
