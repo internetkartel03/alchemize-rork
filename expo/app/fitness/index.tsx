@@ -3,7 +3,8 @@ import { View, StyleSheet, ScrollView, Text, ImageBackground, Platform } from 'r
 import { TouchableOpacity } from '@/components/HapticTouchable';
 import { useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Play, TrendingUp, Award, ChevronRight, Plus, Dumbbell, Pencil } from 'lucide-react-native';
+import { Play, TrendingUp, Award, ChevronRight, Plus, Dumbbell, Pencil, Heart } from 'lucide-react-native';
+import { getAppleHealthStatus } from '@/lib/healthkit';
 import FitnessGoalsModal, { type FitnessGoalTargets } from '@/components/FitnessGoalsModal';
 import { workoutTemplatesDb, workoutSessionsDb, normalizedMetricsDb, fitnessGoalsDb, fitnessPlansDb, awardsDb } from '@/lib/db/fitness';
 import type { Award as AwardType } from '@/types';
@@ -81,6 +82,15 @@ export default function FitnessHubScreen() {
       return data;
     },
   });
+
+  const { data: appleHealthStatus } = useQuery({
+    queryKey: ['appleHealthStatus'],
+    queryFn: () => getAppleHealthStatus(),
+  });
+
+  // Only nudge when Apple Health is off, needs access, or has never completed a sync.
+  const showHealthReminder =
+    !appleHealthStatus?.enabled || !!appleHealthStatus?.needsPermission || !appleHealthStatus?.lastSyncedAt;
 
   const { steps: pedometerSteps } = usePedometer();
 
@@ -173,8 +183,23 @@ export default function FitnessHubScreen() {
               </View>
               <Plus size={24} color="#10b981" />
             </TouchableOpacity>
-            
 
+            {showHealthReminder && (
+              <View style={styles.healthReminder} testID="apple-health-reminder">
+                <Heart size={13} color="#ef4444" />
+                <Text style={styles.healthReminderText}>
+                  To sync your fitness data, make sure Apple Health is connected in{' '}
+                  <Text
+                    style={styles.healthReminderLink}
+                    onPress={() => router.push('/settings?section=apple-health' as any)}
+                    accessibilityRole="link"
+                  >
+                    Settings
+                  </Text>
+                  . You can also tap Sync Now to update your data manually.
+                </Text>
+              </View>
+            )}
           </View>
 
           <View style={styles.section}>
@@ -535,6 +560,23 @@ const styles = StyleSheet.create({
   addManualSubtitle: {
     fontSize: 13,
     color: '#10b981',
+  },
+  healthReminder: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginTop: 12,
+    paddingHorizontal: 12,
+  },
+  healthReminderText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
+    color: '#8a8a8a',
+  },
+  healthReminderLink: {
+    color: '#ef4444',
+    fontWeight: '600' as const,
   },
   wearableNote: {
     flexDirection: 'row',

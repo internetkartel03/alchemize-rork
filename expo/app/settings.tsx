@@ -15,7 +15,7 @@ import {
   Animated,
 } from 'react-native';
 import PressableScale from '@/components/PressableScale';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/theme-context';
 import { useAuth } from '@/contexts/auth-context';
 import {
@@ -42,6 +42,8 @@ import {
   Lightbulb,
   HelpCircle,
   Send,
+  Users,
+  ExternalLink,
 } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -122,6 +124,19 @@ export default function SettingsScreen() {
   const [supportSending, setSupportSending] = useState<boolean>(false);
   const entranceFade = useRef(new Animated.Value(0)).current;
   const entranceRise = useRef(new Animated.Value(14)).current;
+  const scrollRef = useRef<ScrollView>(null);
+  const { section: linkedSection } = useLocalSearchParams<{ section?: string }>();
+  const [appSectionY, setAppSectionY] = useState(0);
+  const [appleHealthRowY, setAppleHealthRowY] = useState<number | null>(null);
+
+  // Deep link from the Fitness reminder: scroll straight to the Apple Health row.
+  useEffect(() => {
+    if (linkedSection !== 'apple-health' || appleHealthRowY === null) return;
+    const timer = setTimeout(() => {
+      scrollRef.current?.scrollTo({ y: Math.max(appSectionY + appleHealthRowY - 24, 0), animated: true });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [linkedSection, appleHealthRowY, appSectionY]);
 
   useEffect(() => {
     Animated.parallel([
@@ -746,6 +761,15 @@ export default function SettingsScreen() {
     Linking.openSettings();
   };
 
+  const handleOpenCommunity = async () => {
+    try {
+      await Linking.openURL('https://alchemizefoundation.com');
+    } catch (error) {
+      console.error('[Settings] Error opening community link:', error);
+      Alert.alert('Unable to Open Link', 'Please visit alchemizefoundation.com in your browser.');
+    }
+  };
+
   const renderAvatar = (size: number = 80) => {
     if (profile.photoUri) {
       return (
@@ -771,7 +795,7 @@ export default function SettingsScreen() {
       />
       <View style={styles.backgroundOverlay} />
       <Animated.View style={{ flex: 1, opacity: entranceFade, transform: [{ translateY: entranceRise }] }}>
-      <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.content}>
+      <ScrollView ref={scrollRef} style={styles.scrollContainer} contentContainerStyle={styles.content}>
       {/* Account Overview Header */}
       <View style={styles.profileHeader}>
         <PressableScale style={styles.avatarContainer} onPress={handleAvatarPress}>
@@ -832,7 +856,7 @@ export default function SettingsScreen() {
       </View>
 
       {/* APP Section */}
-      <View style={styles.section}>
+      <View style={styles.section} onLayout={(e) => setAppSectionY(e.nativeEvent.layout.y)}>
         <Text style={styles.sectionTitle}>APP</Text>
         
         <PressableScale style={styles.settingRow} onPress={() => setAboutVisible(true)}>
@@ -887,7 +911,11 @@ export default function SettingsScreen() {
           <ChevronRight color="#666" size={20} />
         </PressableScale>
 
-        <View style={styles.settingRow}>
+        <View
+          style={styles.settingRow}
+          testID="apple-health-row"
+          onLayout={(e) => setAppleHealthRowY(e.nativeEvent.layout.y)}
+        >
           <PressableScale
             style={styles.settingRowLeft}
             onPress={() => (appleHealthEnabled ? handleSyncNow() : handleToggleAppleHealth(true))}
@@ -1003,6 +1031,26 @@ export default function SettingsScreen() {
             </View>
           </View>
           <ChevronRight color="#666" size={20} />
+        </PressableScale>
+      </View>
+
+      {/* Community Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>OUR COMMUNITY</Text>
+        <Text style={styles.communityText}>
+          Connect with the Alchemize community for resources, workbooks, support, and updates.
+        </Text>
+        <PressableScale style={styles.settingRow} onPress={handleOpenCommunity} testID="community-link">
+          <View style={styles.settingRowLeft}>
+            <View style={styles.iconContainer}>
+              <Users color="#a78bfa" size={20} />
+            </View>
+            <View style={styles.settingTextContainer}>
+              <Text style={styles.settingTitle}>Visit Alchemize Foundation</Text>
+              <Text style={styles.settingSubtitle}>alchemizefoundation.com</Text>
+            </View>
+          </View>
+          <ExternalLink color="#666" size={18} />
         </PressableScale>
       </View>
 
@@ -1996,6 +2044,14 @@ const styles = StyleSheet.create({
     fontWeight: '600' as const,
     textAlign: 'center' as const,
     marginTop: 4,
+  },
+  communityText: {
+    fontSize: 13,
+    color: '#888',
+    lineHeight: 19,
+    marginBottom: 12,
+    marginLeft: 4,
+    marginRight: 4,
   },
   featuresDescription: {
     fontSize: 14,
