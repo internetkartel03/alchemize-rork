@@ -179,7 +179,7 @@ export default function FitnessHubScreen() {
               </View>
               <View style={styles.addManualContent}>
                 <Text style={styles.addManualTitle}>Log Manual Workout</Text>
-                <Text style={styles.addManualSubtitle}>Log duration and calories burned</Text>
+                <Text style={styles.addManualSubtitle}>AI estimates calories burned</Text>
               </View>
               <Plus size={24} color="#10b981" />
             </TouchableOpacity>
