@@ -1,22 +1,14 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, TextInput, Text, ScrollView, Alert, ActivityIndicator, Platform, KeyboardAvoidingView } from 'react-native';
+import { View, StyleSheet, TextInput, Text, ScrollView, Alert, Platform, KeyboardAvoidingView } from 'react-native';
 import { TouchableOpacity } from '@/components/HapticTouchable';
 import { useRouter } from 'expo-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Sparkles, Zap, X, ChevronLeft } from 'lucide-react-native';
+import { ChevronLeft } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { z } from 'zod';
-import { generateObject } from '@/lib/ai';
 import { workoutTemplatesDb, workoutSessionsDb, normalizedMetricsDb } from '@/lib/db/fitness';
 import { estimateCalories } from '@/lib/fitness';
 import { sendWorkoutToAppleHealth } from '@/lib/healthkit';
 import type { WorkoutSession, WorkoutTemplate } from '@/types';
-
-const CalorieEstimateSchema = z.object({
-  estimatedCalories: z.number().describe('Estimated calories burned during the workout'),
-  confidence: z.enum(['low', 'medium', 'high']).describe('Confidence level of the estimate'),
-  explanation: z.string().describe('Brief explanation of the estimate'),
-});
 
 const WORKOUT_TYPE_MAP: Record<string, WorkoutTemplate['category']> = {
   cardio: 'hiit',
@@ -46,9 +38,7 @@ export default function AddWorkoutScreen() {
   const [duration, setDuration] = useState('');
   const [notes, setNotes] = useState('');
   const [workoutDescription, setWorkoutDescription] = useState('');
-  const [aiCalories, setAiCalories] = useState<number | null>(null);
-  const [aiExplanation, setAiExplanation] = useState<string | null>(null);
-  const [aiConfidence, setAiConfidence] = useState<'low' | 'medium' | 'high' | null>(null);
+  const [calories, setCalories] = useState('');
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -59,7 +49,12 @@ export default function AddWorkoutScreen() {
 
       const category = WORKOUT_TYPE_MAP[type];
       const intensity = WORKOUT_TYPE_INTENSITY[type];
-      const calories = aiCalories ?? estimateCalories(durationNum, intensity);
+      // A typed figure wins; otherwise fall back to the local duration/intensity estimate.
+      const enteredCalories = parseInt(calories, 10);
+      const caloriesBurned =
+        !isNaN(enteredCalories) && enteredCalories > 0
+          ? enteredCalories
+          : estimateCalories(durationNum, intensity);
 
       const templateId = `manual-${Date.now()}`;
       const template: WorkoutTemplate = {
@@ -82,7 +77,7 @@ export default function AddWorkoutScreen() {
         endedAt: now,
         durationMinutes: durationNum,
         completed: true,
-        caloriesEstimate: calories,
+        caloriesEstimate: caloriesBurned,
         source: 'manual',
       };
 
@@ -97,7 +92,7 @@ export default function AddWorkoutScreen() {
           id: existingMetric.id,
           date: dateStr,
           activeMinutes: durationNum,
-          caloriesActive: calories,
+          caloriesActive: caloriesBurned,
           steps: 0,
           source: 'workout',
           deviceType: 'none',
@@ -107,7 +102,7 @@ export default function AddWorkoutScreen() {
           id: `metric-${Date.now()}`,
           date: dateStr,
           activeMinutes: durationNum,
-          caloriesActive: calories,
+          caloriesActive: caloriesBurned,
           steps: 0,
           source: 'workout',
           deviceType: 'none',
@@ -130,44 +125,6 @@ export default function AddWorkoutScreen() {
     onError: (error) => {
       console.error('Workout save error:', error);
       Alert.alert('Error', 'Failed to save workout. Please try again.');
-    },
-  });
-
-  const estimateCaloriesMutation = useMutation({
-    mutationFn: async () => {
-      if (!workoutDescription.trim() || !duration) return null;
-      
-      const result = await generateObject({
-        messages: [
-          {
-            role: 'user',
-            content: `Estimate calories burned for this workout:
-
-Workout Type: ${type}
-Duration: ${duration} minutes
-Description: ${workoutDescription}
-
-Provide an estimated calorie burn based on this information. Consider typical metabolic rates and exercise intensity. If the description mentions specific exercises, use those to refine the estimate.`,
-          },
-        ],
-        schema: CalorieEstimateSchema,
-      });
-      return result;
-    },
-    onSuccess: (data) => {
-      if (data) {
-        setAiCalories(data.estimatedCalories);
-        setAiExplanation(data.explanation);
-        setAiConfidence(data.confidence);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-    },
-    onError: (error) => {
-      console.error('AI estimation error:', error);
-      const reason = error instanceof Error && error.message
-        ? error.message
-        : 'Could not estimate calories.';
-      Alert.alert('Estimation Failed', `${reason} You can also enter the calories manually.`);
     },
   });
 
@@ -218,16 +175,10 @@ Provide an estimated calorie burn based on this information. Consider typical me
         />
 
         <Text style={styles.label}>Workout Description</Text>
-        <Text style={styles.sublabel}>Describe your workout for AI calorie estimation</Text>
         <TextInput
           style={[styles.input, styles.textArea]}
           value={workoutDescription}
-          onChangeText={(text) => {
-            setWorkoutDescription(text);
-            setAiCalories(null);
-            setAiExplanation(null);
-            setAiConfidence(null);
-          }}
+          onChangeText={setWorkoutDescription}
           placeholder="e.g. 'Running on treadmill at 6mph with 2% incline' or '3 sets of 10 squats, deadlifts, and bench press'"
           placeholderTextColor="#555"
           multiline
@@ -235,52 +186,18 @@ Provide an estimated calorie burn based on this information. Consider typical me
           textAlignVertical="top"
         />
 
-        {Boolean(workoutDescription.trim() && duration) && (
-          <TouchableOpacity
-            style={styles.estimateButton}
-            onPress={() => estimateCaloriesMutation.mutate()}
-            disabled={estimateCaloriesMutation.isPending}
-          >
-            {estimateCaloriesMutation.isPending ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <>
-                <Sparkles size={18} color="#fff" />
-                <Text style={styles.estimateButtonText}>Get AI Calorie Estimate</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        )}
-
-        {aiCalories !== null && (
-          <View style={styles.aiResultCard}>
-            <View style={styles.aiResultHeader}>
-              <Zap size={18} color="#f59e0b" />
-              <Text style={styles.aiResultTitle}>AI Estimated Calories</Text>
-              <View style={[
-                styles.confidenceBadge,
-                aiConfidence === 'high' ? styles.confidenceHigh :
-                aiConfidence === 'medium' ? styles.confidenceMedium : styles.confidenceLow
-              ]}>
-                <Text style={styles.confidenceText}>{aiConfidence}</Text>
-              </View>
-            </View>
-            <Text style={styles.aiCaloriesValue}>{aiCalories} cal</Text>
-            {aiExplanation && (
-              <Text style={styles.aiExplanation}>{aiExplanation}</Text>
-            )}
-            <TouchableOpacity
-              style={styles.clearEstimateBtn}
-              onPress={() => {
-                setAiCalories(null);
-                setAiExplanation(null);
-                setAiConfidence(null);
-              }}
-            >
-              <Text style={styles.clearEstimateText}>Clear & Enter Manually</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+        <Text style={styles.label}>Calories Burned (optional)</Text>
+        <TextInput
+          style={styles.input}
+          value={calories}
+          onChangeText={setCalories}
+          placeholder="Leave blank for an estimate"
+          placeholderTextColor="#666"
+          keyboardType="number-pad"
+        />
+        <Text style={styles.sublabel}>
+          Enter your own figure, or leave it blank and Alchemize estimates from duration and intensity.
+        </Text>
 
         <Text style={styles.label}>Additional Notes (optional)</Text>
         <TextInput
@@ -370,83 +287,6 @@ const styles = StyleSheet.create({
     color: '#666',
     marginBottom: 8,
     marginTop: -4,
-  },
-  estimateButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#8b5cf6',
-    borderRadius: 12,
-    padding: 14,
-    marginTop: 12,
-  },
-  estimateButtonText: {
-    fontSize: 15,
-    fontWeight: '600' as const,
-    color: '#fff',
-  },
-  aiResultCard: {
-    backgroundColor: 'rgba(245, 158, 11, 0.1)',
-    borderRadius: 16,
-    padding: 16,
-    marginTop: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.2)',
-  },
-  aiResultHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
-  },
-  aiResultTitle: {
-    fontSize: 14,
-    fontWeight: '600' as const,
-    color: '#f59e0b',
-    flex: 1,
-  },
-  confidenceBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-  },
-  confidenceHigh: {
-    backgroundColor: 'rgba(34, 197, 94, 0.2)',
-  },
-  confidenceMedium: {
-    backgroundColor: 'rgba(245, 158, 11, 0.2)',
-  },
-  confidenceLow: {
-    backgroundColor: 'rgba(239, 68, 68, 0.2)',
-  },
-  confidenceText: {
-    fontSize: 11,
-    fontWeight: '600' as const,
-    color: '#fff',
-    textTransform: 'capitalize',
-  },
-  aiCaloriesValue: {
-    fontSize: 36,
-    fontWeight: '700' as const,
-    color: '#fff',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  aiExplanation: {
-    fontSize: 13,
-    color: '#888',
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-  clearEstimateBtn: {
-    marginTop: 12,
-    alignItems: 'center',
-  },
-  clearEstimateText: {
-    fontSize: 13,
-    color: '#666',
-    textDecorationLine: 'underline',
   },
   saveButton: {
     backgroundColor: '#6366f1',
